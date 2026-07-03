@@ -24,6 +24,7 @@ import (
 	"go-botje/modules/karma"
 	"go-botje/modules/lastseen"
 	"go-botje/modules/pacman"
+	"go-botje/modules/tinyurl"
 )
 
 const usage = `usage: botje <keeper|core|standalone> [flags]`
@@ -104,5 +105,6 @@ func modules() []module.Module {
 		karma.New(),
 		lastseen.New(),
 		pacman.New(),
+		tinyurl.New(),
 	}
 }
