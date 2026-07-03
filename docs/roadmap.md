@@ -24,9 +24,9 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 - [x] live smoke test against junerules #testing (env-gated)
 
 ## Phase 3: support systems
-- [ ] internal/fetch (single-flight, timeout, sizeLimit, redirects, basic auth, streaming)
+- [x] internal/fetch (single-flight, timeout, sizeLimit, redirects, basic auth, streaming)
 - [ ] internal/admin: port 1924, auth, module/conf/irc commands
-- [ ] auth: users + superuser, proper hashing, no md5 migration (BenV resets at cutover)
+- [x] auth: users + superuser, proper hashing, no md5 migration (BenV resets at cutover)
 
 ## Phase 4: modules, in parity order
 Order by daily-use value, simplest first within tiers:
