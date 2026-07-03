@@ -6,7 +6,7 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 - [x] Investigation of Perl botje (docs/perl-reference/)
 - [x] Architecture proposal (docs/architecture.md)
 - [x] Architecture debated + decisions locked with BenV (2026-07-03, see architecture.md decisions log)
-- [ ] go.mod, cmd/botje stub, CI-less local test loop (make test)
+- [x] go.mod, cmd/botje stub, CI-less local test loop (make test)
 
 ## Phase 1: core plumbing
 - [ ] internal/sched: timer heap + bus feed (fake clock tests)

@@ -1,3 +1,5 @@
 reference/
+bin/
+cover.out
 *.dat
 botje.tar.bz2
