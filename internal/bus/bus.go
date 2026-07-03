@@ -32,11 +32,12 @@ type Sender struct {
 	UserID           string // set by the auth nick handler, empty otherwise
 }
 
-// RawCmd is the parsed raw IRC command behind an event.
+// RawCmd is the raw IRC command behind an event. Params is the unparsed
+// params string, like the Perl rawcmd; split it with irc.SplitParams.
 type RawCmd struct {
 	Prefix string
 	Cmd    string
-	Params []string
+	Params string
 }
 
 // Event is the Perl event hashref as a struct. Modules written against
