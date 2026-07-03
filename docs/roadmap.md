@@ -34,7 +34,7 @@ Order by daily-use value, simplest first within tiers:
 - [x] ego
 - [x] lastseen
 - [x] pacman (trivial, fun early win)
-- [ ] tinyurl
+- [x] tinyurl
 - [ ] rss (the big one; fix the short-code collision)
 - [ ] pizza (timers)
 - [ ] markov (+ dictionary migration, 29 MB)
