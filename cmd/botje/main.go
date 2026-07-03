@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 
+	"go-botje/internal/auth"
 	"go-botje/internal/core"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
@@ -56,6 +57,7 @@ func standalone(args []string) int {
 		useTLS   = fs.Bool("tls", true, "connect with TLS")
 		nick     = fs.String("nick", "Meretrix", "bot nick")
 		channels = fs.String("channels", "#testing", "comma-separated channels to join")
+		adminOn  = fs.String("admin", "127.0.0.1:1924", "telnet admin address, empty to disable")
 	)
 	fs.Parse(args)
 
@@ -71,14 +73,28 @@ func standalone(args []string) int {
 	}
 	defer store.Close()
 
+	a, err := auth.New(store)
+	if err != nil {
+		slog.Error("auth", "err", err)
+		return 1
+	}
+	// superuser bootstrap from env: BOTJE_SUPERUSER=name:bcrypt-hash
+	if su := os.Getenv("BOTJE_SUPERUSER"); su != "" {
+		if name, hash, ok := strings.Cut(su, ":"); ok {
+			a.SetSuperuser(name, hash)
+		}
+	}
+
 	err = core.Run(ctx, core.Config{
-		Network:  *network,
-		Addr:     *addr,
-		TLS:      *useTLS,
-		Nick:     *nick,
-		Channels: strings.Split(*channels, ","),
-		Store:    store,
-		Modules:  modules(),
+		Network:   *network,
+		Addr:      *addr,
+		TLS:       *useTLS,
+		Nick:      *nick,
+		Channels:  strings.Split(*channels, ","),
+		Store:     store,
+		Modules:   modules(),
+		Auth:      a,
+		AdminAddr: *adminOn,
 	})
 	if err != nil {
 		slog.Error("core", "err", err)

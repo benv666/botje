@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"go-botje/internal/auth"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
@@ -130,6 +131,65 @@ func TestCoreSuggestion(t *testing.T) {
 	if !strings.Contains(got, "PRIVMSG #testing :BenV: Maybe you meant") ||
 		!strings.Contains(got, "ping") {
 		t.Fatalf("suggestion = %q", got)
+	}
+}
+
+func TestCoreAdminPort(t *testing.T) {
+	client, server := net.Pipe()
+	adminLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := auth.New(storage.NewMemory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.AddUser("benv", "geheim")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{
+			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
+			Store: storage.NewMemory(), Auth: a, AdminListener: adminLn,
+			Dial:      func() (net.Conn, error) { return client, nil },
+			JoinDelay: 10 * time.Millisecond,
+		})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		server.Close()
+		<-done
+	})
+
+	tc, err := net.Dial("tcp", adminLn.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tc.Close()
+	tc.SetDeadline(time.Now().Add(10 * time.Second))
+	r := bufio.NewReader(tc)
+	expectTelnet := func(marker string) string {
+		t.Helper()
+		var buf strings.Builder
+		b := make([]byte, 1)
+		for !strings.Contains(buf.String(), marker) {
+			if _, err := r.Read(b); err != nil {
+				t.Fatalf("waiting for %q, got %q: %v", marker, buf.String(), err)
+			}
+			buf.WriteByte(b[0])
+		}
+		return buf.String()
+	}
+	expectTelnet("login: ")
+	tc.Write([]byte("benv\r\n"))
+	expectTelnet("password: ")
+	tc.Write([]byte("geheim\r\n"))
+	expectTelnet("Welcome to botje!")
+	tc.Write([]byte("status\r\n"))
+	out := expectTelnet("Modules with hooks:")
+	if !strings.Contains(out, "test") {
+		t.Fatalf("status = %q", out)
 	}
 }
 
