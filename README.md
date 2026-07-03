@@ -71,6 +71,7 @@ viewers (nc in a pipe) show nothing until you type.
 | ego | `!ego <nick>`, auto-report every 200 self-references |
 | lastseen | `!last <nick>` |
 | pacman | messages starting with 2+ dots (exactly 2: 70% ignored) |
+| pizza | `!pizza`/`!timer <timespec> [r{...}] [msg]`, `when <id>`, `clear [id]`, `start`/`stop` stopwatch; timespec: `18:30`, `24-12-2026`, `+2h30m`, weekdays, repeats `r{1d}` (min 30 min) |
 | tinyurl | `!tinyurl <url>`, auto-shortens channel URLs over 40 chars |
 | core | `!more [command]` pages long replies |
 
