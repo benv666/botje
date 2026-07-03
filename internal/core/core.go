@@ -113,6 +113,7 @@ func Run(ctx context.Context, cfg Config) error {
 	mctx := &module.Context{
 		Bus: c.bus, Cmd: c.cmds, Pager: c.pager, Conf: c.conf,
 		Store: cfg.Store, Sched: c.sch, Fetch: fetcher,
+		Privmsg: c.privmsg,
 	}
 	for _, m := range cfg.Modules {
 		if err := m.Load(mctx); err != nil {

@@ -30,7 +30,7 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 
 ## Phase 4: modules, in parity order
 Order by daily-use value, simplest first within tiers:
-- [ ] karma (small, heavily used, data migration proof case)
+- [x] karma (small, heavily used, data migration proof case)
 - [ ] ego
 - [ ] lastseen
 - [ ] pacman (trivial, fun early win)
