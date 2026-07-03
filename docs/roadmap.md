@@ -9,11 +9,11 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 - [x] go.mod, cmd/botje stub, CI-less local test loop (make test)
 
 ## Phase 1: core plumbing
-- [ ] internal/sched: timer heap + bus feed (fake clock tests)
-- [ ] internal/bus: dispatcher, registry, panic isolation, call stats
-- [ ] internal/conf: typed settings + config_changed
-- [ ] internal/storage: Storage interface, in-memory backend, postgres backend + embedded migrations
-- [ ] internal/format: colorize, wrap/truncate (448/510, UTF-8), sparkline, tables
+- [x] internal/sched: timer heap + bus feed (fake clock tests)
+- [x] internal/bus: dispatcher, registry, panic isolation, call stats
+- [x] internal/conf: typed settings + config_changed
+- [x] internal/storage: Storage interface, in-memory backend, postgres backend + embedded migrations
+- [x] internal/format: colorize, wrap/truncate (448/510, UTF-8), sparkline, tables
 
 ## Phase 2: IRC layer
 - [ ] internal/irc: line parser + numerics table (golden tests)
