@@ -106,6 +106,13 @@ func (r *Registry) UnregisterModule(module string) {
 	})
 }
 
+// Has reports whether any module registered word (the Perl
+// checkCommand; karma uses it to leave !command++ alone).
+func (r *Registry) Has(word string) bool {
+	_, ok := r.commands[word]
+	return ok
+}
+
 // Commands lists all registered command words, sorted.
 func (r *Registry) Commands() []string {
 	out := make([]string, 0, len(r.commands))

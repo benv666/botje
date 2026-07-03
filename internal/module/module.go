@@ -25,6 +25,9 @@ type Context struct {
 	Store storage.Store
 	Sched *sched.Sched
 	Fetch *fetch.Fetcher
+	// Privmsg sends directly, bypassing the pager (the Perl
+	// cmd_privmsg): newline-split, wrapped, flood-queued, colorized.
+	Privmsg func(channel, msg string)
 }
 
 // Module is one feature module. Name doubles as the storage namespace

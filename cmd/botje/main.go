@@ -20,6 +20,7 @@ import (
 	"go-botje/internal/core"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
+	"go-botje/modules/karma"
 )
 
 const usage = `usage: botje <keeper|core|standalone> [flags]`
@@ -95,5 +96,7 @@ func openStore(ctx context.Context) (storage.Store, error) {
 
 // modules is the standalone autoload list, the Go modules.autoload.
 func modules() []module.Module {
-	return []module.Module{}
+	return []module.Module{
+		karma.New(),
+	}
 }

@@ -219,6 +219,18 @@ func TestUnregisterModule(t *testing.T) {
 	}
 }
 
+func TestHas(t *testing.T) {
+	r := New()
+	r.Register("m", "karma", func(*Data) bool { return true })
+	if !r.Has("karma") || r.Has("nope") {
+		t.Errorf("Has = %v/%v, want true/false", r.Has("karma"), r.Has("nope"))
+	}
+	r.UnregisterModule("m")
+	if r.Has("karma") {
+		t.Error("Has true after UnregisterModule")
+	}
+}
+
 func TestLevenshtein(t *testing.T) {
 	for _, tc := range []struct {
 		a, b string
