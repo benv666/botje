@@ -21,5 +21,8 @@ livetest:
 
 # run the bot against junerules #testing as Meretrix (ctrl-c to quit).
 # BOTJE_PG_DSN=postgres://... for persistent storage, else in-memory.
+# telnet admin on 127.0.0.1:1924 needs a user:
+#   quick dev:  BOTJE_SUPERUSER=benv:somepass make run
+#   persistent: BOTJE_PG_DSN=... ./bin/botje adduser benv somepass
 run:
 	$(GO) run ./cmd/botje standalone

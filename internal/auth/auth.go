@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -103,6 +104,26 @@ func (a *Auth) Check(name, password string) Result {
 		return Valid
 	}
 	return BadPass
+}
+
+// ParseSuperuser parses a "name:password" bootstrap spec (the
+// BOTJE_SUPERUSER env var). The password may be a ready bcrypt hash
+// (recognized by its $2 prefix, generate one with 'botje hash') or
+// plaintext, which is hashed on the spot; plaintext in the environment
+// is dev convenience, not a production suggestion.
+func ParseSuperuser(spec string) (name, hash string, err error) {
+	name, pass, ok := strings.Cut(spec, ":")
+	if !ok || name == "" || pass == "" {
+		return "", "", fmt.Errorf("auth: superuser spec must be name:password or name:bcrypt-hash")
+	}
+	if strings.HasPrefix(pass, "$2") {
+		return name, pass, nil
+	}
+	h, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return "", "", err
+	}
+	return name, string(h), nil
 }
 
 // Users lists usernames, sorted.
