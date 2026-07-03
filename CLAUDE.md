@@ -14,7 +14,7 @@ The original Perl tree + live data snapshot is in `reference/` (gitignored, extr
 
 - **TDD.** Test first, then code. No component lands without tests. Protocol, flood control, formatting, and storage are pure enough for table-driven tests; write them that way.
 - **No external IRC/bot frameworks.** The IRC layer is ours (stdlib + crypto/tls). Deliberate choice, same as the Perl bot. Small focused libs for peripheral stuff (sigv4, qr) are fine; discuss anything bigger.
-- **Never test against live channels.** Testing happens on irc.benv.junerules.com port 6669 (TLS), channel **#testing** only. Test nick: **putain** (French for hoer; if taken, ask BenV). Never connect as hoer, never join #rss or other live channels from test code. Live integration tests are gated behind `BOTJE_LIVE_TEST=1`.
+- **Never test against live channels.** Testing happens on irc.benv.junerules.com port 6669 (TLS), channel **#testing** only. Test nick: **Meretrix** (Latin, BenV's pick; if taken, ask BenV). Never connect as hoer, never join #rss or other live channels from test code. Live integration tests are gated behind `BOTJE_LIVE_TEST=1`.
 - **Don't touch the running hoer.** No writes to /docker/botje on Uil, no telnet to its 1924, no restarts, unless BenV explicitly asks.
 - **No em-dashes** in any output: code comments, docs, commit messages. Plain hyphens, commas, or colons. This is a BenV-wide rule.
 - **Commit style:** lowercase imperative, short, like the Perl repo ("fix utf-8 boundary handling in reader"). BenV reviews and pushes; do not push to remotes.
@@ -25,7 +25,7 @@ Single-process event-driven IRC bot. Custom select loop, hot-reloadable modules,
 
 17 working active modules to port. The big four: RSS (feed subscriptions per channel, item recall by short id), Markov (learns channel chatter, 29 MB dictionary), Karma (`item++`/`item--`), Ticker (BTC/ETH/stocks with sparklines). Full inventory: docs/perl-reference/modules.md.
 
-## Architecture (locked once debated)
+## Architecture (locked 2026-07-03)
 
 Single dispatcher goroutine owns module event dispatch (modules stay race-free, like the Perl select loop). Blocking work in goroutines, results re-enter via the event channel. Modules are compiled-in Go packages behind a registry with runtime enable/disable; no dynamic loading. Storage: JSON per namespace, dirty-flag flush every 60s + on shutdown. Package layout in docs/architecture.md.
 
@@ -35,7 +35,7 @@ Fix, do not port: RSS short-code collision (the !LI6 incident, see docs/perl-ref
 
 ## Current status (update this section every session)
 
-- 2026-07-03: investigation done, reference docs written, architecture PROPOSED (open questions in docs/architecture.md not yet debated with BenV). No Go code yet. Next: debate open questions, lock decisions, then Phase 0/1 of docs/roadmap.md.
+- 2026-07-03: investigation done, reference docs written, architecture DECIDED with BenV (see docs/architecture.md decisions log): keeper/core process split for reconnect-free upgrades, Postgres storage sidecar, telnet admin 1924, nick Meretrix, search module replaces google scrape (SearXNG), Remind ported, WorkHours dropped, auth reset at cutover. No Go code yet. Next: Phase 0/1 of docs/roadmap.md (go.mod, sched, bus, conf, storage, format).
 
 ## Environment notes
 

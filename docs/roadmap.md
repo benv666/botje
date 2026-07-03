@@ -5,14 +5,14 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 ## Phase 0: skeleton (this repo)
 - [x] Investigation of Perl botje (docs/perl-reference/)
 - [x] Architecture proposal (docs/architecture.md)
-- [ ] Architecture debated + decisions locked with BenV
+- [x] Architecture debated + decisions locked with BenV (2026-07-03, see architecture.md decisions log)
 - [ ] go.mod, cmd/botje stub, CI-less local test loop (make test)
 
 ## Phase 1: core plumbing
 - [ ] internal/sched: timer heap + bus feed (fake clock tests)
 - [ ] internal/bus: dispatcher, registry, panic isolation, call stats
 - [ ] internal/conf: typed settings + config_changed
-- [ ] internal/storage: JSON namespaces, dirty flush, atomic writes
+- [ ] internal/storage: Storage interface, in-memory backend, postgres backend + embedded migrations
 - [ ] internal/format: colorize, wrap/truncate (448/510, UTF-8), sparkline, tables
 
 ## Phase 2: IRC layer
@@ -26,7 +26,7 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 ## Phase 3: support systems
 - [ ] internal/fetch (single-flight, timeout, sizeLimit, redirects, basic auth, streaming)
 - [ ] internal/admin: port 1924, auth, module/conf/irc commands
-- [ ] auth: users + superuser, md5 compat for migrated users (or force reset, ask BenV)
+- [ ] auth: users + superuser, proper hashing, no md5 migration (BenV resets at cutover)
 
 ## Phase 4: modules, in parity order
 Order by daily-use value, simplest first within tiers:
@@ -40,10 +40,13 @@ Order by daily-use value, simplest first within tiers:
 - [ ] markov (+ dictionary migration, 29 MB)
 - [ ] ticker
 - [ ] kind
-- [ ] wiki, urband, sdcv (pending binary decision), wolframalpha, google (pending decision)
+- [ ] wiki, urband, wolframalpha
+- [ ] search (replaces google: SearXNG backend, DDG lite fallback)
+- [ ] remind (cron reminders + remember/recall, promoted from inactive)
 - [ ] llm (unified: openai + bedrock + ollama)
 - [ ] nagios
-- [ ] optional/inactive: floodkick, qrcode, spell, remind, workhours, urlpeek, nectarine
+- [ ] optional/inactive: floodkick, qrcode, urlpeek, nectarine, sdcv/spell (postponed by decision)
+- dropped: workhours, todo (was never finished), ps3_proxy
 
 ## Phase 5: migration + cutover
 - [ ] tools/migrate: Storable -> JSON dump + import, verified counts

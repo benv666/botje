@@ -10,6 +10,16 @@ Status: PROPOSAL, not yet debated with BenV. Open questions at the bottom.
 - Single binary, modules compiled in. A module is a Go package implementing the Module interface, registered in a registry. Enable/disable per module at runtime (config + admin port), no dynamic loading.
 - TDD throughout. The protocol/flood/colorize/pager layers are pure functions wherever possible, so they get table-driven unit tests. Integration tests run against irc.benv.junerules.com:6669 TLS, channel #testing, gated behind an env var.
 
+## Process model: connection keeper + core (DECIDED 2026-07-03)
+
+BenV wants a reconnect-free upgrade path; plain restart-per-upgrade is acceptable only as fallback. So the bot splits in two cooperating processes from the same binary:
+
+- keeper (`botje keeper`): owns the TCP/TLS connections to IRC servers, nothing else. Speaks a simple framed protocol (IRC lines + control messages: connect/join/status) over a unix socket to the core. Buffers inbound and queues outbound while the core is away. Small, boring, changes almost never.
+- core (`botje core`): dispatcher, modules, storage, admin port. Restarts freely for upgrades and bugfixes; the IRC session never drops, nick stays online, no join/part noise.
+- Single-process mode (`botje standalone`) for dev and tests: core connects directly.
+- Compose runs keeper + core + postgres; unix socket on a shared volume. Keeper upgrades are the rare visible reconnect.
+- Flood control lives in the core (it owns message semantics); keeper just writes what it gets, with a dumb hard rate cap as a safety net.
+
 ## Concurrency model
 
 The Perl bot is a single-threaded select loop; module code never races. We keep that property where it matters:
@@ -22,7 +32,8 @@ The Perl bot is a single-threaded select loop; module code never races. We keep 
 ## Package layout
 
 ```
-cmd/botje/            main, wiring, signal handling
+cmd/botje/            main; subcommands: keeper, core, standalone
+internal/keeper/      connection-keeper process + framed unix-socket protocol (client side in core)
 internal/bus/         event types, dispatcher, module registry, per-handler panic recovery + call stats
 internal/module/      Module interface: Info() (name, deps), Load(ctx), Unload(), optional Status(), ReloadSettings()
 internal/irc/         connection state machine per network: parser, numerics, event structs,
@@ -30,8 +41,9 @@ internal/irc/         connection state machine per network: parser, numerics, ev
 internal/irc/flood/   outbound queue: high prio + per-channel round-robin, 1 msg/s token bucket,
                       >80 byte lines count multiple, 510-byte truncate, 448-byte wrap
 internal/format/      colorize {x} tags -> mIRC codes, sparkline, table formatter, !more pager
-internal/storage/     namespace store, JSON file per namespace, dirty-flag + periodic flush +
-                      flush on disable/shutdown, atomic write (tmp + rename)
+internal/storage/     Storage interface; postgres backend (prod), in-memory backend (tests).
+                      Generic kv table (namespace, name, value jsonb) mirroring Perl semantics;
+                      modules may own real tables (markov) behind the same interface
 internal/conf/        typed settings (int/float/string/bool), defaults, config_changed events
 internal/fetch/       HTTP client wrapper: timeouts, size limits, redirect cap 8, basic auth,
                       single-flight per URL, streaming, SigV4 (for Bedrock)
@@ -50,22 +62,29 @@ tools/migrate/        Storable .dat -> JSON migration (Perl dump script + Go imp
 - Command system: registerCommand(word) with multi-registration, default handlers with (priority, continue), Levenshtein did-you-mean on unknown commands.
 - cmd_eventmsg pager: max N lines (default 4), (+N) suffix, !more with 600s expiry.
 - Colorize tags: identical {x} syntax so module output code ports verbatim.
-- Storage: GetData/SaveData per (namespace, key) semantics, but with an honest flush policy instead of flush-on-unload-only.
+- Storage: GetData/SaveData per (namespace, key) semantics against Postgres, so persistence is immediate and honest instead of flush-on-unload-only.
 - Fetcher options: method/post/redirects/timeout/sizeLimit/basic auth/streaming/SigV4.
 - Admin port: same port 1924, same core commands where sensible. The Perl eval backdoor does NOT come along.
 
 ## Deliberate improvements (not bugs to port)
 
 - RSS short-code allocator checks liveness before reuse (the !LI6 cats bug).
-- Storage flush: dirty namespaces flushed every 60s and on shutdown/disable. kill -9 loses at most a minute.
+- Storage: Postgres sidecar (DECIDED), writes land immediately, kill -9 loses nothing committed. Embedded migrations run at core boot; compose makes setup automagic.
 - Secrets only via env/file, no hardcoded API keys (UrbanD and Ticker keys move to config).
 - LLM modules unified: one module, pluggable backends (OpenAI, Bedrock/Claude, Ollama), shared history/queue logic, per-backend model allow-lists.
 - Structured logging (slog), keep the colored human console format.
 - ChatGPT module's debug POST to httpbin: dropped.
 
+## Storage details (DECIDED: Postgres)
+
+- Sidecar postgres in docker compose (alpine image, volume, healthcheck), core waits for it and auto-migrates (embedded migrations).
+- Base table: kv(namespace text, name text, value jsonb, updated_at) primary key (namespace, name). This is literally the unfinished Storage_MySQL design from 2007, delivered.
+- Greppability answered by psql + a `botje kv dump [ns]` subcommand.
+- Unit tests run against the in-memory backend; integration tests against a throwaway pg (compose).
+
 ## Data migration
 
-Karma (1.3 MB), Markov (29 MB), Ego, RSS feeds+subscriptions, Ticker, Kind, Lastseen, Pizza timers must survive. Plan: small Perl dumper (Storable -> JSON, runs once with the old perl image, based on mounts/data/test.pl) + Go importer into the new storage. Verify counts (karma items, markov keys) match before cutover.
+Karma (1.3 MB), Markov (29 MB), Ego, RSS feeds+subscriptions, Ticker, Kind, Lastseen, Pizza timers must survive. Plan: small Perl dumper (Storable -> JSON, runs once with the old perl image, based on mounts/data/test.pl) + Go importer into Postgres. Verify counts (karma items, markov keys) match before cutover. Bonus: no more Storable-version upgrade breakage.
 
 ## Testing strategy
 
@@ -74,13 +93,17 @@ Karma (1.3 MB), Markov (29 MB), Ego, RSS feeds+subscriptions, Ticker, Kind, Last
 - Integration (env-gated, BOTJE_LIVE_TEST=1): connect to irc.benv.junerules.com:6669 TLS, join #testing, exercise join/msg/flood/reconnect against the real ircd. Never in #rss or other live channels. Test nick, not hoer.
 - Module parity checks: for RSS/Karma/Ticker, feed the same inputs to Perl and Go and diff outputs (where practical).
 
-## Open questions for BenV
+## Decisions log
 
-1. Hot reload: Perl reloads modules live via telnet. Go cannot swap compiled code. Proposal: runtime enable/disable + state flush + fast restart under docker (IRC reconnect visible for a few seconds). Alternative is hashicorp go-plugin RPC subprocesses, which buys live swap at the cost of complexity. Take the restart?
-2. Storage format: JSON file per namespace (greppable, diffable, matches current model) vs bbolt/sqlite. Proposal: JSON. Markov 29 MB as JSON is fine but could get its own binary/gob format if load time annoys.
-3. Admin surface: keep raw telnet on 1924 for muscle memory, or same protocol + optional TLS? Proposal: plain telnet on loopback like now.
-4. sdcv/aspell (external binaries): keep shelling out (needs them in the image), pure-Go replacements, or drop? BenV flagged mspell-class stuff as a non-distraction: decide late, stub for now.
-5. Nick for the test bot: French translation of hoer. Candidates: putain (the classic), pute (literal), cocotte (politer, double meaning with the cooking pot). Default proposal: putain.
-6. Module priority order for parity: proposal below in roadmap, confirm.
-7. Google module scrapes google.nl HTML and breaks whenever Google sneezes. Port as-is, switch to an API, or drop?
-8. IRC_Kind, Pizza, Remind, WorkHours: Kind and Pizza are active, port. Remind/WorkHours are inactive: port anyway or leave?
+- 2026-07-03: keeper/core process split for reconnect-free core upgrades (BenV: disconnects are the crux).
+- 2026-07-03: Postgres storage, compose sidecar, automagic setup (BenV preference, finishes the 2007 SQL intent).
+- 2026-07-03: admin stays plain telnet on loopback 1924, no eval backdoor.
+- 2026-07-03: test/parallel-run nick is Meretrix (Latin; BenV's pick over putain/pute/cocotte).
+- 2026-07-03: google module reborn as a generic search module: free + low-hoops backend. Plan: self-hosted SearXNG (JSON API, no keys, fits the Uil docker fleet), DDG lite as fallback. No google.nl scraping.
+- 2026-07-03: sdcv/aspell postponed, stub the commands, decide near the end.
+- 2026-07-03: Remind gets ported (was inactive), WorkHours dropped.
+- 2026-07-03: auth: no md5 migration, BenV resets the admin password at cutover. Passwords hashed properly (bcrypt or similar) in Go.
+
+## Open questions
+
+None. All decisions locked 2026-07-03; see the decisions log above. Module parity order in docs/roadmap.md is the working default and can be reshuffled anytime.
