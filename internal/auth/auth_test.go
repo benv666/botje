@@ -106,6 +106,36 @@ func TestDeleteUser(t *testing.T) {
 	}
 }
 
+func TestParseSuperuser(t *testing.T) {
+	// plaintext password gets hashed at boot
+	name, hash, err := ParseSuperuser("benv:geheim")
+	if err != nil || name != "benv" {
+		t.Fatalf("ParseSuperuser = %q %q %v", name, hash, err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte("geheim")) != nil {
+		t.Error("plaintext password not usable after hashing")
+	}
+
+	// a bcrypt hash passes through untouched
+	pre, _ := bcrypt.GenerateFromPassword([]byte("x"), bcrypt.MinCost)
+	name, hash, err = ParseSuperuser("root:" + string(pre))
+	if err != nil || name != "root" || hash != string(pre) {
+		t.Fatalf("ParseSuperuser hash passthrough = %q %q %v", name, hash, err)
+	}
+
+	// colons in the password stay in the password
+	_, hash, err = ParseSuperuser("benv:ge:heim")
+	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte("ge:heim")) != nil {
+		t.Error("colon in password mishandled")
+	}
+
+	for _, bad := range []string{"", "nopassword", ":onlypass", "name:"} {
+		if _, _, err := ParseSuperuser(bad); err == nil {
+			t.Errorf("ParseSuperuser(%q) did not error", bad)
+		}
+	}
+}
+
 func TestUsersSorted(t *testing.T) {
 	a, _ := newAuth(t)
 	a.AddUser("zed", "x")

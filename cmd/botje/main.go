@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"go-botje/internal/auth"
 	"go-botje/internal/core"
 	"go-botje/internal/module"
@@ -28,7 +30,11 @@ import (
 	"go-botje/modules/tinyurl"
 )
 
-const usage = `usage: botje <keeper|core|standalone> [flags]`
+const usage = `usage: botje <standalone|adduser|hash|keeper|core> [flags]
+
+  standalone            run the bot (defaults: junerules #testing as Meretrix)
+  adduser <user> <pass> insert or update an admin user in storage (needs BOTJE_PG_DSN)
+  hash <password>       print a bcrypt hash, e.g. for BOTJE_SUPERUSER=name:<hash>`
 
 func main() {
 	if len(os.Args) < 2 {
@@ -38,6 +44,10 @@ func main() {
 	switch os.Args[1] {
 	case "standalone":
 		os.Exit(standalone(os.Args[2:]))
+	case "adduser":
+		os.Exit(adduser(os.Args[2:]))
+	case "hash":
+		os.Exit(hashCmd(os.Args[2:]))
 	case "keeper", "core":
 		fmt.Fprintf(os.Stderr, "botje %s: not implemented yet, use standalone\n", os.Args[1])
 		os.Exit(1)
@@ -45,6 +55,59 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+// hashCmd prints a bcrypt hash for BOTJE_SUPERUSER.
+func hashCmd(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: botje hash <password>")
+		return 2
+	}
+	h, err := bcrypt.GenerateFromPassword([]byte(args[0]), bcrypt.DefaultCost)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println(string(h))
+	return 0
+}
+
+// adduser inserts or updates an admin user directly in storage: the
+// bootstrap for the telnet port. Needs BOTJE_PG_DSN; the in-memory
+// store dies with the process, so there is nothing to add users to.
+func adduser(args []string) int {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: botje adduser <username> <password>")
+		return 2
+	}
+	if os.Getenv("BOTJE_PG_DSN") == "" {
+		fmt.Fprintln(os.Stderr, "adduser needs BOTJE_PG_DSN (in-memory storage has no users to manage);")
+		fmt.Fprintln(os.Stderr, "for a quick dev run use BOTJE_SUPERUSER=name:password with standalone instead")
+		return 2
+	}
+	ctx := context.Background()
+	store, err := openStore(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer store.Close()
+	a, err := auth.New(store)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	name, pass := args[0], args[1]
+	if err := a.AddUser(name, pass); err != nil {
+		if err := a.SetPassword(name, pass); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Printf("password updated for %s\n", name)
+		return 0
+	}
+	fmt.Printf("user %s added\n", name)
+	return 0
 }
 
 // standalone runs a single-process bot. Defaults point at the junerules
@@ -78,11 +141,16 @@ func standalone(args []string) int {
 		slog.Error("auth", "err", err)
 		return 1
 	}
-	// superuser bootstrap from env: BOTJE_SUPERUSER=name:bcrypt-hash
+	// superuser bootstrap: BOTJE_SUPERUSER=name:password (plaintext,
+	// dev) or name:bcrypt-hash (from 'botje hash')
 	if su := os.Getenv("BOTJE_SUPERUSER"); su != "" {
-		if name, hash, ok := strings.Cut(su, ":"); ok {
-			a.SetSuperuser(name, hash)
+		name, hash, err := auth.ParseSuperuser(su)
+		if err != nil {
+			slog.Error("BOTJE_SUPERUSER", "err", err)
+			return 1
 		}
+		a.SetSuperuser(name, hash)
+		slog.Info("admin: superuser bootstrapped from env", "name", name)
 	}
 
 	err = core.Run(ctx, core.Config{
