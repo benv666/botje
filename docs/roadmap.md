@@ -49,7 +49,7 @@ Order by daily-use value, simplest first within tiers:
 - dropped: workhours, todo (was never finished), ps3_proxy
 
 ## Phase 5: migration + cutover
-- [ ] tools/migrate: Storable -> JSON dump + import, verified counts
+- [ ] tools/migrate: Storable -> JSON dump + import, verified counts (dump.pl + karma transformer DONE, proven against live IRC_Karma.dat; other modules as they land)
 - [ ] Dockerfile (scratch/distroless, single binary), compose file matching current mounts
 - [ ] Parallel run: go-botje as Meretrix on junerules alongside hoer, same channels read-only-ish, compare behavior
 - [ ] Cutover: stop hoer, migrate fresh data dump, go-botje takes nick hoer

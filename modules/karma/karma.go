@@ -22,18 +22,18 @@ import (
 
 const storeKey = "karma"
 
-// entry is one item's karma and reason tallies.
-type entry struct {
+// Entry is one item's karma and reason tallies.
+type Entry struct {
 	Karma  int                       `json:"karma"`
 	Last   int64                     `json:"last"`
 	Reason map[string]map[string]int `json:"reason,omitempty"` // "up"/"down" -> reason -> count
 }
 
-type data struct {
+type Data struct {
 	// Servers: server -> channel -> item -> entry
-	Servers map[string]map[string]map[string]*entry `json:"servers"`
+	Servers map[string]map[string]map[string]*Entry `json:"servers"`
 	// Global: item -> entry (the Perl __GLOBAL_IRC_Karma__)
-	Global map[string]*entry `json:"global"`
+	Global map[string]*Entry `json:"global"`
 }
 
 var (
@@ -47,7 +47,7 @@ var (
 // Module implements module.Module.
 type Module struct {
 	ctx   *module.Context
-	karma data
+	karma Data
 }
 
 // New returns an unloaded karma module.
@@ -57,15 +57,15 @@ func (m *Module) Name() string { return "karma" }
 
 func (m *Module) Load(ctx *module.Context) error {
 	m.ctx = ctx
-	m.karma = data{}
+	m.karma = Data{}
 	if _, err := ctx.Store.Get(m.Name(), storeKey, &m.karma); err != nil {
 		return fmt.Errorf("karma: load: %w", err)
 	}
 	if m.karma.Servers == nil {
-		m.karma.Servers = make(map[string]map[string]map[string]*entry)
+		m.karma.Servers = make(map[string]map[string]map[string]*Entry)
 	}
 	if m.karma.Global == nil {
-		m.karma.Global = make(map[string]*entry)
+		m.karma.Global = make(map[string]*Entry)
 	}
 
 	ctx.Cmd.Register(m.Name(), "wku", m.whyKarma)
@@ -175,25 +175,25 @@ func (m *Module) whyKarma(d *cmd.Data) bool {
 	return true
 }
 
-func (m *Module) entryFor(server, channel, item string) *entry {
+func (m *Module) entryFor(server, channel, item string) *Entry {
 	if m.karma.Servers[server] == nil {
-		m.karma.Servers[server] = make(map[string]map[string]*entry)
+		m.karma.Servers[server] = make(map[string]map[string]*Entry)
 	}
 	if m.karma.Servers[server][channel] == nil {
-		m.karma.Servers[server][channel] = make(map[string]*entry)
+		m.karma.Servers[server][channel] = make(map[string]*Entry)
 	}
 	e := m.karma.Servers[server][channel][item]
 	if e == nil {
-		e = &entry{Last: time.Now().Unix()}
+		e = &Entry{Last: time.Now().Unix()}
 		m.karma.Servers[server][channel][item] = e
 	}
 	return e
 }
 
-func (m *Module) globalFor(item string) *entry {
+func (m *Module) globalFor(item string) *Entry {
 	e := m.karma.Global[item]
 	if e == nil {
-		e = &entry{Last: time.Now().Unix()}
+		e = &Entry{Last: time.Now().Unix()}
 		m.karma.Global[item] = e
 	}
 	return e
@@ -213,7 +213,7 @@ func (m *Module) adjust(item string, amount int, server, channel, reason string)
 		if amount > 0 {
 			ud = "up"
 		}
-		for _, target := range []*entry{e, g} {
+		for _, target := range []*Entry{e, g} {
 			if target.Reason == nil {
 				target.Reason = make(map[string]map[string]int)
 			}
