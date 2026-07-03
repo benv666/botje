@@ -27,6 +27,7 @@ import (
 	"go-botje/modules/karma"
 	"go-botje/modules/lastseen"
 	"go-botje/modules/pacman"
+	"go-botje/modules/pizza"
 	"go-botje/modules/tinyurl"
 )
 
@@ -189,6 +190,7 @@ func modules() []module.Module {
 		karma.New(),
 		lastseen.New(),
 		pacman.New(),
+		pizza.New(),
 		tinyurl.New(),
 	}
 }

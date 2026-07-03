@@ -36,7 +36,7 @@ Order by daily-use value, simplest first within tiers:
 - [x] pacman (trivial, fun early win)
 - [x] tinyurl
 - [ ] rss (the big one; fix the short-code collision)
-- [ ] pizza (timers)
+- [x] pizza (timers)
 - [ ] markov (+ dictionary migration, 29 MB)
 - [ ] ticker
 - [ ] kind
