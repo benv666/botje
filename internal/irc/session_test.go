@@ -287,6 +287,31 @@ func TestUnhandledNumericIgnored(t *testing.T) {
 	}
 }
 
+// The Perl ignores 433 and sits nickless forever; here the session
+// retries with an underscore suffix and follows its own new nick.
+func TestNickInUseRetriesWithUnderscore(t *testing.T) {
+	f := newSess()
+	f.s.HandleLine(":srv 433 * Meretrix :Nickname is already in use")
+	if !slices.Equal(f.sent, []string{"NICK Meretrix_"}) {
+		t.Fatalf("sent = %q, want underscore retry", f.sent)
+	}
+	if len(f.events) != 0 {
+		t.Fatalf("433 produced events: %+v", f.events)
+	}
+	// the bot now answers to the new nick: queries rewrite against it
+	f.s.HandleLine(":BenV!b@h PRIVMSG Meretrix_ :psst")
+	ev := f.one(t, "IRC_PRIVMSG")
+	if !ev.Query || ev.BotNick != "Meretrix_" {
+		t.Fatalf("event after nick change = %+v", ev)
+	}
+	// and again: another collision appends another underscore
+	f.sent = nil
+	f.s.HandleLine(":srv 433 * Meretrix_ :Nickname is already in use")
+	if !slices.Equal(f.sent, []string{"NICK Meretrix__"}) {
+		t.Fatalf("sent = %q", f.sent)
+	}
+}
+
 func TestJoinChannels(t *testing.T) {
 	f := newSess()
 	f.s.JoinChannels([]string{"#testing", "#other"})
