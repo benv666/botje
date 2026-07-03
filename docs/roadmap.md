@@ -16,12 +16,12 @@ Phases are sequential, each lands with tests green. Within a phase, TDD per comp
 - [x] internal/format: colorize, wrap/truncate (448/510, UTF-8), sparkline, tables
 
 ## Phase 2: IRC layer
-- [ ] internal/irc: line parser + numerics table (golden tests)
-- [ ] connection state machine, TLS, reconnect backoff, channel tracking
-- [ ] internal/irc/flood: token bucket + per-channel RR queue (fake clock)
-- [ ] command dispatch (!commands, default handlers, Levenshtein suggest)
-- [ ] pager (!more)
-- [ ] live smoke test against junerules #testing (env-gated)
+- [x] internal/irc: line parser + numerics table (golden tests)
+- [x] connection state machine, TLS, reconnect backoff, channel tracking
+- [x] internal/irc/flood: token bucket + per-channel RR queue (fake clock)
+- [x] command dispatch (!commands, default handlers, Levenshtein suggest)
+- [x] pager (!more)
+- [x] live smoke test against junerules #testing (env-gated)
 
 ## Phase 3: support systems
 - [ ] internal/fetch (single-flight, timeout, sizeLimit, redirects, basic auth, streaming)
