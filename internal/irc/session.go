@@ -126,6 +126,12 @@ func (s *Session) HandleLine(raw string) {
 		s.onTopic(ev, line)
 	case "RPL_TOPIC":
 		s.onRplTopic(line)
+	case "ERR_NICKNAMEINUSE":
+		// divergence from the Perl (which sat nickless forever): retry
+		// with an underscore, the classic client move
+		s.nick += "_"
+		slog.Warn("irc: nick in use, retrying", "network", s.network, "nick", s.nick)
+		s.Send("NICK " + s.nick)
 	case "RPL_MOTDSTART":
 		s.motd.Reset()
 	case "RPL_MOTD":
