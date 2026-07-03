@@ -51,7 +51,7 @@ Order by daily-use value, simplest first within tiers:
 ## Phase 5: migration + cutover
 - [ ] tools/migrate: Storable -> JSON dump + import, verified counts
 - [ ] Dockerfile (scratch/distroless, single binary), compose file matching current mounts
-- [ ] Parallel run: go-botje as putain on junerules alongside hoer, same channels read-only-ish, compare behavior
+- [ ] Parallel run: go-botje as Meretrix on junerules alongside hoer, same channels read-only-ish, compare behavior
 - [ ] Cutover: stop hoer, migrate fresh data dump, go-botje takes nick hoer
 - [ ] Keep Perl image around for rollback
 
