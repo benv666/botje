@@ -1,0 +1,525 @@
+{
+   "colorize" : [
+      {
+         "ansi" : "plain text, no tags",
+         "in" : "plain text, no tags",
+         "mirc" : "plain text, no tags"
+      },
+      {
+         "ansi" : "\u001b[0mreset",
+         "in" : "{/}reset",
+         "mirc" : "\u000freset"
+      },
+      {
+         "ansi" : "\u001b[31mbrown",
+         "in" : "{r}brown",
+         "mirc" : "\u000305brown"
+      },
+      {
+         "ansi" : "\u001b[31;1mred",
+         "in" : "{R}red",
+         "mirc" : "\u000304red"
+      },
+      {
+         "ansi" : "\u001b[32mgreen",
+         "in" : "{g}green",
+         "mirc" : "\u000303green"
+      },
+      {
+         "ansi" : "\u001b[32;1mbgreen",
+         "in" : "{G}bgreen",
+         "mirc" : "\u000309bgreen"
+      },
+      {
+         "ansi" : "\u001b[33morange",
+         "in" : "{y}orange",
+         "mirc" : "\u000307orange"
+      },
+      {
+         "ansi" : "\u001b[33;1myellow",
+         "in" : "{Y}yellow",
+         "mirc" : "\u000308yellow"
+      },
+      {
+         "ansi" : "\u001b[34mblue",
+         "in" : "{b}blue",
+         "mirc" : "\u000302blue"
+      },
+      {
+         "ansi" : "\u001b[35mpurple",
+         "in" : "{m}purple",
+         "mirc" : "\u000306purple"
+      },
+      {
+         "ansi" : "\u001b[35;1mbpurple",
+         "in" : "{M}bpurple",
+         "mirc" : "\u000313bpurple"
+      },
+      {
+         "ansi" : "\u001b[36mcyan",
+         "in" : "{c}cyan",
+         "mirc" : "\u000310cyan"
+      },
+      {
+         "ansi" : "\u001b[36;1mbcyan",
+         "in" : "{C}bcyan",
+         "mirc" : "\u000311bcyan"
+      },
+      {
+         "ansi" : "\u001b[37mgrey",
+         "in" : "{w}grey",
+         "mirc" : "\u000315grey"
+      },
+      {
+         "ansi" : "\u001b[37;1mbwhite",
+         "in" : "{W}bwhite",
+         "mirc" : "\u000300bwhite"
+      },
+      {
+         "ansi" : "\u001b[1mboldflag",
+         "in" : "{B}boldflag",
+         "mirc" : "boldflag"
+      },
+      {
+         "ansi" : "\u001b[4munder",
+         "in" : "{_}under",
+         "mirc" : "\u001funder"
+      },
+      {
+         "ansi" : "\u001b[1m\u001b[31mboldstate-red",
+         "in" : "{B}{r}boldstate-red",
+         "mirc" : "\u000304boldstate-red"
+      },
+      {
+         "ansi" : "\u001b[31;1mbright\u001b[32mstays-bright-green",
+         "in" : "{R}bright{g}stays-bright-green",
+         "mirc" : "\u000304bright\u000309stays-bright-green"
+      },
+      {
+         "ansi" : "\u001b[31;1mbright\u001b[0m\u001b[32mreset-then-green",
+         "in" : "{R}bright{/}{g}reset-then-green",
+         "mirc" : "\u000304bright\u000f\u000303reset-then-green"
+      },
+      {
+         "ansi" : "\u001b[31ma\u001b[33mb\u001b[32mc\u001b[0mdone",
+         "in" : "{r}a{y}b{g}c{/}done",
+         "mirc" : "\u000305a\u000307b\u000303c\u000fdone"
+      },
+      {
+         "ansi" : "unknown tag stripped",
+         "in" : "{q}unknown tag stripped",
+         "mirc" : "unknown tag stripped"
+      },
+      {
+         "ansi" : "\u001b[31m,5 comma fixup",
+         "in" : "{r},5 comma fixup",
+         "mirc" : "\u000305,01,5 comma fixup"
+      },
+      {
+         "ansi" : "mid\u001b[36mword\u001b[0mtags",
+         "in" : "mid{c}word{/}tags",
+         "mirc" : "mid\u000310word\u000ftags"
+      },
+      {
+         "ansi" : "multi \u001b[32mline\nsecond \u001b[31mline",
+         "in" : "multi {g}line\nsecond {r}line",
+         "mirc" : "multi \u000303line\nsecond \u000305line"
+      },
+      {
+         "ansi" : "\u001b[4munderline\u001b[0moff",
+         "in" : "{_}underline{/}off",
+         "mirc" : "\u001funderline\u000foff"
+      },
+      {
+         "ansi" : "trailing tag\u001b[33m",
+         "in" : "trailing tag{y}",
+         "mirc" : "trailing tag\u000307"
+      },
+      {
+         "ansi" : "{}",
+         "in" : "{}",
+         "mirc" : "{}"
+      },
+      {
+         "ansi" : "unclosed {r brace",
+         "in" : "unclosed {r brace",
+         "mirc" : "unclosed {r brace"
+      }
+   ],
+   "sparkline" : [
+      {
+         "in" : [
+            1,
+            5,
+            3
+         ],
+         "out" : [
+            "{/}▁{g}█{r}▄"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+         ],
+         "out" : [
+            "{/}▁{g}▁▂▃▄▅▆▇█"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            9,
+            8,
+            7,
+            6,
+            5,
+            4,
+            3,
+            2,
+            1
+         ],
+         "out" : [
+            "{/}█{r}▇▆▅▄▃▂▁▁"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            5,
+            5,
+            5
+         ],
+         "out" : [
+            "{/}▄▄▄"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            3,
+            1,
+            4,
+            1,
+            5,
+            9,
+            2,
+            6
+         ],
+         "out" : [
+            "{/} {r} {g} {r} {g} █{r} {g}▂",
+            "{/}▄{r}▁{g}▆{r}▁{g}██{r}▂{g}█"
+         ],
+         "rows" : 2
+      },
+      {
+         "in" : [],
+         "out" : [
+            "[]"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            42
+         ],
+         "out" : [
+            "{/}▄"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            -3,
+            0,
+            3
+         ],
+         "out" : [
+            "{/}▁{g}▄█"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            100,
+            101,
+            100,
+            99,
+            100
+         ],
+         "out" : [
+            "{/} {g}█{r}  {g} ",
+            "{/}▄{g}█{r}▄ {g}▄",
+            "{/}█{g}█{r}█▁{g}█"
+         ],
+         "rows" : 3
+      },
+      {
+         "in" : [
+            0.1,
+            0.2,
+            0.15,
+            0.3
+         ],
+         "out" : [
+            "{/}▁{g}▄{r}▂{g}█"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            7,
+            7,
+            7,
+            8,
+            7,
+            7
+         ],
+         "out" : [
+            "{/}▁▁▁{g}█{r}▁▁"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            1,
+            5,
+            3
+         ],
+         "out" : [
+            "{/}▁{g}█{r}▄"
+         ],
+         "rows" : 0
+      },
+      {
+         "in" : [
+            0,
+            4.5,
+            8
+         ],
+         "out" : [
+            "{/}▁{g}▅█"
+         ],
+         "rows" : 1
+      },
+      {
+         "in" : [
+            0,
+            3.7,
+            8
+         ],
+         "out" : [
+            "{/} {g} █",
+            "{/}▁{g}▇█"
+         ],
+         "rows" : 2
+      }
+   ],
+   "splitmessagedata" : [
+      {
+         "msg" : "short message",
+         "out" : [
+            "PRIVMSG #testing :short message"
+         ],
+         "prefix" : "PRIVMSG #testing :"
+      },
+      {
+         "msg" : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+         "out" : [
+            "PRIVMSG #testing :xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "PRIVMSG #testing :xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+         ],
+         "prefix" : "PRIVMSG #testing :"
+      },
+      {
+         "msg" : "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word end",
+         "out" : [
+            "PRIVMSG #t :word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+            "PRIVMSG #t :word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word end"
+         ],
+         "prefix" : "PRIVMSG #t :"
+      }
+   ],
+   "tfcprint" : [
+      {
+         "args" : null,
+         "color" : 1,
+         "format" : "10|20",
+         "mode" : null,
+         "out" : "+----------+--------------------+\n"
+      },
+      {
+         "args" : null,
+         "color" : null,
+         "format" : "10%s|20%s",
+         "mode" : 1,
+         "out" : "+----------+--------------------+\n"
+      },
+      {
+         "args" : [
+            "hello",
+            "world"
+         ],
+         "color" : "G|/",
+         "format" : "10%s|20%s",
+         "mode" : null,
+         "out" : "| {/}{G}hello   {/} | {/}world             {/} | \n"
+      },
+      {
+         "args" : [
+            "left",
+            "right"
+         ],
+         "color" : "r|g",
+         "format" : "8%s|8%s",
+         "mode" : null,
+         "out" : "| {/}{r}left  {/} | {g}right {/} | \n"
+      },
+      {
+         "args" : [
+            "toolongvaluehere"
+         ],
+         "color" : "y",
+         "format" : "8%s",
+         "mode" : null,
+         "out" : "| {/}{y}toolon{/} | \n| {/}+>{y}gval{/} | \n| {/}+>{y}uehe{/} | \n| {/}+>{y}re  {/} | \n"
+      },
+      {
+         "args" : [
+            "some{g}col{/}text",
+            "ok"
+         ],
+         "color" : "C|w",
+         "format" : "12%s|8%s",
+         "mode" : null,
+         "out" : "| {/}{C}some{g}col{/}{C}tex{/} | {w}ok    {/} | \n| {/}+>{C}t       {/} | +>{w}    {/} | \n"
+      },
+      {
+         "args" : [
+            "id",
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+         ],
+         "color" : "W|/",
+         "format" : "6%s|30%s",
+         "mode" : null,
+         "out" : "| {/}{W}id  {/} | {/}xxxxxxxxxxxxxxxxxxxxxxxxxxxx{/} | \n| {/}+>{W}  {/} | +>{/}xxxxxxxxxxxx              {/} | \n"
+      },
+      {
+         "args" : null,
+         "color" : 1,
+         "format" : "3|3",
+         "mode" : null,
+         "out" : "3|3 has length < 5. Minimum is 5 (2 padding, 3 text)!\n"
+      },
+      {
+         "args" : [
+            "a",
+            "b"
+         ],
+         "color" : "G",
+         "format" : "10%s|20%s",
+         "mode" : null,
+         "out" : "[10%s|20%s]: #Formats != #args != #colors ! --formats: 2 colors: 1 args: 2\n"
+      }
+   ],
+   "wraptext" : [
+      {
+         "in" : "short line",
+         "max" : 448,
+         "out" : [
+            "short line"
+         ]
+      },
+      {
+         "in" : "a b c d e f g h i j",
+         "max" : 8,
+         "out" : [
+            "a b c d",
+            "e f g h",
+            "i j"
+         ]
+      },
+      {
+         "in" : "aaaaaaaaaaaaaaaaaaaaaaaaa",
+         "max" : 10,
+         "out" : [
+            "aaaaaaaaaa",
+            "aaaaaaaaaa",
+            "aaaaa"
+         ]
+      },
+      {
+         "in" : "word xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx tail",
+         "max" : 12,
+         "out" : [
+            "word",
+            "xxxxxxxxxxxx",
+            "xxxxxxxxxxxx",
+            "xxxxxx",
+            "tail"
+         ]
+      },
+      {
+         "in" : "een twee drie vier vijf zes zeven acht",
+         "max" : 12,
+         "out" : [
+            "een twee",
+            "drie vier",
+            "vijf zes",
+            "zeven acht"
+         ]
+      },
+      {
+         "in" : "héhé bébé café rösti über",
+         "max" : 10,
+         "out" : [
+            "héhé",
+            "bébé",
+            "café",
+            "rösti",
+            "über"
+         ]
+      },
+      {
+         "in" : "🍺🍺🍺🍺🍺",
+         "max" : 8,
+         "out" : [
+            "🍺🍺",
+            "🍺🍺",
+            "🍺"
+         ]
+      },
+      {
+         "in" : "exactfit12 exactfit12",
+         "max" : 23,
+         "out" : [
+            "exactfit12 exactfit12"
+         ]
+      },
+      {
+         "in" : "twelve bytes",
+         "max" : 12,
+         "out" : [
+            "twelve",
+            "bytes"
+         ]
+      },
+      {
+         "in" : "tabs\tand  multiple   spaces",
+         "max" : 10,
+         "out" : [
+            "tabs and",
+            "multiple",
+            "spaces"
+         ]
+      }
+   ]
+}
