@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +22,7 @@ import (
 
 	"go-botje/internal/auth"
 	"go-botje/internal/core"
+	"go-botje/internal/keeper"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
 	"go-botje/modules/ego"
@@ -39,9 +41,11 @@ import (
 	"go-botje/modules/wolframalpha"
 )
 
-const usage = `usage: botje <standalone|adduser|hash|keeper|core> [flags]
+const usage = `usage: botje <standalone|keeper|core|adduser|hash> [flags]
 
-  standalone            run the bot (defaults: junerules #testing as Meretrix)
+  standalone            run the whole bot in one process (dev, tests)
+  keeper                own the IRC connection, relay to core over a unix socket
+  core                  run dispatcher+modules, connect via a keeper (-socket)
   adduser <user> <pass> insert or update an admin user in storage (needs BOTJE_PG_DSN)
   hash <password>       print a bcrypt hash, e.g. for BOTJE_SUPERUSER=name:<hash>`
 
@@ -57,9 +61,10 @@ func main() {
 		os.Exit(adduser(os.Args[2:]))
 	case "hash":
 		os.Exit(hashCmd(os.Args[2:]))
-	case "keeper", "core":
-		fmt.Fprintf(os.Stderr, "botje %s: not implemented yet, use standalone\n", os.Args[1])
-		os.Exit(1)
+	case "keeper":
+		os.Exit(keeperMode(os.Args[2:]))
+	case "core":
+		os.Exit(coreMode(os.Args[2:]))
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
@@ -119,8 +124,9 @@ func adduser(args []string) int {
 	return 0
 }
 
-// standalone runs a single-process bot. Defaults point at the junerules
-// test setup: #testing as Meretrix, never the live channels.
+// standalone runs a single-process bot (core connects to IRC directly).
+// Defaults point at the junerules test setup: #testing as Meretrix,
+// never the live channels.
 func standalone(args []string) int {
 	fs := flag.NewFlagSet("standalone", flag.ExitOnError)
 	var (
@@ -132,7 +138,59 @@ func standalone(args []string) int {
 		adminOn  = fs.String("admin", "127.0.0.1:1924", "telnet admin address, empty to disable")
 	)
 	fs.Parse(args)
+	return runCore(coreOpts{
+		network: *network, addr: *addr, tls: *useTLS, nick: *nick,
+		channels: *channels, admin: *adminOn,
+	})
+}
 
+// coreMode runs just the core, connecting to a keeper's unix socket
+// instead of dialing IRC. The keeper owns the IRC connection, so the
+// core restarts freely without dropping the IRC session.
+func coreMode(args []string) int {
+	fs := flag.NewFlagSet("core", flag.ExitOnError)
+	var (
+		network  = fs.String("network", "junerules", "irc network name")
+		socket   = fs.String("socket", "/data/keeper.sock", "keeper unix socket")
+		nick     = fs.String("nick", "Meretrix", "bot nick")
+		channels = fs.String("channels", "#testing", "comma-separated channels to join")
+		adminOn  = fs.String("admin", "127.0.0.1:1924", "telnet admin address, empty to disable")
+	)
+	fs.Parse(args)
+	return runCore(coreOpts{
+		network: *network, socket: *socket, nick: *nick,
+		channels: *channels, admin: *adminOn,
+	})
+}
+
+// keeperMode runs just the connection keeper.
+func keeperMode(args []string) int {
+	fs := flag.NewFlagSet("keeper", flag.ExitOnError)
+	var (
+		addr   = fs.String("addr", "irc.benv.junerules.com:6669", "server host:port")
+		useTLS = fs.Bool("tls", true, "connect with TLS")
+		socket = fs.String("socket", "/data/keeper.sock", "unix socket for the core")
+	)
+	fs.Parse(args)
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := keeper.Run(ctx, keeper.Config{Addr: *addr, TLS: *useTLS, Socket: *socket}); err != nil {
+		if ctx.Err() == nil {
+			slog.Error("keeper", "err", err)
+			return 1
+		}
+	}
+	return 0
+}
+
+type coreOpts struct {
+	network, addr, nick, channels, admin string
+	tls                                  bool
+	socket                               string // set = connect via keeper
+}
+
+func runCore(o coreOpts) int {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -162,18 +220,27 @@ func standalone(args []string) int {
 		slog.Info("admin: superuser bootstrapped from env", "name", name)
 	}
 
-	err = core.Run(ctx, core.Config{
-		Network:   *network,
-		Addr:      *addr,
-		TLS:       *useTLS,
-		Nick:      *nick,
-		Channels:  strings.Split(*channels, ","),
+	cfg := core.Config{
+		Network:   o.network,
+		Addr:      o.addr,
+		TLS:       o.tls,
+		Nick:      o.nick,
+		Channels:  strings.Split(o.channels, ","),
 		Store:     store,
 		Modules:   modules(),
 		Auth:      a,
-		AdminAddr: *adminOn,
-	})
-	if err != nil {
+		AdminAddr: o.admin,
+	}
+	if o.socket != "" {
+		// connect to the keeper instead of IRC; the keeper frames and
+		// relays raw bytes, so the transport is byte-identical. Suppress
+		// the goodbye QUIT so a core restart leaves the session up.
+		sock := o.socket
+		cfg.Dial = func() (net.Conn, error) { return net.Dial("unix", sock) }
+		cfg.SkipGoodbye = true
+	}
+
+	if err := core.Run(ctx, cfg); err != nil {
 		slog.Error("core", "err", err)
 		return 1
 	}
