@@ -38,7 +38,7 @@ Order by daily-use value, simplest first within tiers:
 - [x] rss (the big one; fix the short-code collision)
 - [x] pizza (timers)
 - [x] markov (+ dictionary migration, 29 MB)
-- [ ] ticker
+- [x] ticker
 - [ ] kind
 - [ ] wiki, urband, wolframalpha
 - [ ] search (replaces google: SearXNG backend, DDG lite fallback)
