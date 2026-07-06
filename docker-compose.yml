@@ -1,9 +1,16 @@
 # go-botje: bot + postgres sidecar. Storage auto-migrates at boot.
 #
+# Two run modes:
+#   docker compose up -d                      # standalone (default)
+#   docker compose --profile split up -d      # keeper + core (reconnect-
+#                                             # free core upgrades)
+# In split mode, `docker compose restart core` upgrades the dispatcher
+# and modules without dropping the IRC session (the keeper holds it).
+#
 # Defaults are the SAFE parallel-run config: nick Meretrix, channel
 # #testing, never the live channels or the hoer nick. For cutover,
-# change the `command` nick/channels (see docs/roadmap.md Phase 5) and
-# migrate a fresh data dump first.
+# change the nick/channels (see docs/roadmap.md Phase 5) and migrate a
+# fresh data dump first.
 #
 # Secrets come from .env (copy .env.example). The telnet admin port is
 # published on the host loopback only.
@@ -24,9 +31,11 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # standalone: the whole bot in one process (default profile).
   botje:
     build: .
     image: go-botje:latest
+    profiles: ["standalone", ""]
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,5 +62,45 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # split mode: keeper owns the IRC socket, core restarts freely.
+  keeper:
+    build: .
+    image: go-botje:latest
+    profiles: ["split"]
+    command: [keeper, -socket=/run/keeper/keeper.sock]
+    environment:
+      TZ: Europe/Amsterdam
+    volumes:
+      - keepersock:/run/keeper
+    extra_hosts:
+      - "irc.benv.junerules.com:192.168.178.2"
+    restart: unless-stopped
+
+  core:
+    build: .
+    image: go-botje:latest
+    profiles: ["split"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keeper:
+        condition: service_started
+    command:
+      - core
+      - -socket=/run/keeper/keeper.sock
+      - -admin=0.0.0.0:1924
+      - -nick=Meretrix
+      - -channels=#testing
+    environment:
+      TZ: Europe/Amsterdam
+      BOTJE_PG_DSN: postgres://botje:${POSTGRES_PASSWORD}@postgres:5432/botje?sslmode=disable
+      BOTJE_SUPERUSER: ${BOTJE_SUPERUSER:-}
+    volumes:
+      - keepersock:/run/keeper
+    ports:
+      - "127.0.0.1:1924:1924"
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  keepersock:

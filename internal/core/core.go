@@ -47,6 +47,11 @@ type Config struct {
 	Auth          *auth.Auth
 	AdminAddr     string
 	AdminListener net.Listener
+
+	// SkipGoodbye suppresses the QUIT on shutdown. Set when running
+	// under a keeper: a core restart must leave the IRC session up, so
+	// the keeper (not the core) owns the real goodbye.
+	SkipGoodbye bool
 }
 
 // ircEvents is every event name the session can emit.
@@ -372,13 +377,18 @@ func (c *core) privmsg(receiver, msg string) {
 	}
 }
 
-// shutdown says goodbye and gives the flood queue a moment to flush.
+// shutdown lets modules say goodbye and, unless running under a keeper,
+// sends the IRC QUIT. Under a keeper the session must survive a core
+// restart, so the QUIT is suppressed and the connection just closes;
+// the keeper keeps the IRC link and the next core resumes.
 func (c *core) shutdown() {
 	if c.conn == nil {
 		return
 	}
 	c.bus.Submit(&bus.Event{Name: "QUIT", Extra: map[string]any{}})
-	c.conn.Write("QUIT :" + quitMsgs[rand.IntN(len(quitMsgs))])
-	time.Sleep(1500 * time.Millisecond)
+	if !c.cfg.SkipGoodbye {
+		c.conn.Write("QUIT :" + quitMsgs[rand.IntN(len(quitMsgs))])
+		time.Sleep(1500 * time.Millisecond)
+	}
 	c.conn.Close()
 }
