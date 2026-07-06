@@ -41,7 +41,7 @@ Order by daily-use value, simplest first within tiers:
 - [x] ticker
 - dropped by BenV 2026-07-06: kind, search, nagios
 - [x] wiki, urband, wolframalpha
-- [ ] remind (cron reminders + remember/recall, promoted from inactive)
+- [x] remind (cron reminders + remember/recall, promoted from inactive)
 - [ ] llm (unified: openai + bedrock + ollama)
 - [ ] optional/inactive: floodkick, qrcode, urlpeek, nectarine, sdcv/spell (postponed by decision)
 - dropped: workhours, todo (was never finished), ps3_proxy
