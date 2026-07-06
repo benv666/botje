@@ -29,6 +29,16 @@ go run ./cmd/botje standalone -addr irc.benv.junerules.com:6669 -tls \
     -nick Meretrix -channels "#testing" -admin 127.0.0.1:1924
 ```
 
+Two process models:
+
+- **standalone** (above): one process, connects to IRC directly. Simplest; a
+  restart reconnects to IRC.
+- **keeper + core**: `botje keeper` owns the IRC connection and relays it to
+  `botje core` over a unix socket. The core (dispatcher + modules) can restart
+  without dropping the IRC session, so module/bugfix upgrades are
+  reconnect-free. `docker compose --profile split up -d`, then
+  `docker compose restart core` to upgrade.
+
 Environment:
 
 | var | meaning |
