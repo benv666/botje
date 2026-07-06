@@ -3,4 +3,4 @@ bin/
 cover.out
 *.dat
 botje.tar.bz2
-.env
+.git/
