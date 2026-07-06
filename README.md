@@ -76,6 +76,9 @@ viewers (nc in a pipe) show nothing until you type.
 | rss | `!rss add <url> [refresh=N] [#chan\|query] [tag=X] [grep="re"]`, `del`, `list [url]`, `last <key>`, `refresh <key>`, `!rss <id>` / bare `!<id>` recalls (repeat to page) |
 | ticker | `!ticker add\|del\|show SYM [height]`, `setalarm SYM high= low= up= down=`, `delalarm`, `refresh`, `list`, bare `!SYM [height]`; BTC/ETH builtin, stocks need `conf ticker_alphavantage_key=...` |
 | tinyurl | `!tinyurl <url>`, auto-shortens channel URLs over 40 chars |
+| wiki | `!wiki <query>`, top 3 Wikipedia hits (15s per-channel spam brake) |
+| urband | `!ud <term>` via RapidAPI Urban Dictionary; needs `conf urband_rapidapi_key=...` |
+| wolframalpha | `!wa <query>`; needs `conf wolframalpha_appid=...` |
 | core | `!more [command]` pages long replies |
 
 Unknown `!commands` get a Levenshtein did-you-mean.
