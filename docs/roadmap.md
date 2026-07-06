@@ -47,7 +47,7 @@ Order by daily-use value, simplest first within tiers:
 - dropped: workhours, todo (was never finished), ps3_proxy
 
 ## Phase 5: migration + cutover
-- [ ] tools/migrate: Storable -> JSON dump + import, verified counts (dump.pl + karma transformer DONE, proven against live IRC_Karma.dat; other modules as they land)
+- [x] tools/migrate: Storable -> JSON dump + import, verified counts. DONE for karma (3889 global items), markov (27614 words/29MB), ego (873 nicks), rss (25 feeds/2959 items) - all proven against live .dat + readable back through a real module. dump.pl aliases dropped Europe/Amsterdam tz -> Brussels for DateTime thaw. Remaining modules (ticker alarms, remind, pizza, lastseen) are small-or-stale: recreate at cutover rather than migrate (pizza .dat empty, lastseen 2017-stale). Add transformers if BenV wants them.
 - [x] Dockerfile (alpine, 21 MB single static binary), compose file (bot + postgres sidecar, admin on host loopback, junerules host pin); verified live: stack up, Meretrix in #testing, migrations auto-ran, health green
 - [ ] Parallel run: go-botje as Meretrix on junerules alongside hoer, same channels read-only-ish, compare behavior
 - [ ] Cutover: stop hoer, migrate fresh data dump, go-botje takes nick hoer
