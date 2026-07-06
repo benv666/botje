@@ -48,7 +48,7 @@ Order by daily-use value, simplest first within tiers:
 
 ## Phase 5: migration + cutover
 - [ ] tools/migrate: Storable -> JSON dump + import, verified counts (dump.pl + karma transformer DONE, proven against live IRC_Karma.dat; other modules as they land)
-- [ ] Dockerfile (scratch/distroless, single binary), compose file matching current mounts
+- [x] Dockerfile (alpine, 21 MB single static binary), compose file (bot + postgres sidecar, admin on host loopback, junerules host pin); verified live: stack up, Meretrix in #testing, migrations auto-ran, health green
 - [ ] Parallel run: go-botje as Meretrix on junerules alongside hoer, same channels read-only-ish, compare behavior
 - [ ] Cutover: stop hoer, migrate fresh data dump, go-botje takes nick hoer
 - [ ] Keep Perl image around for rollback
