@@ -44,7 +44,8 @@ func run(mod, in, dsn string) error {
 		return fmt.Errorf("parse %s: %w", in, err)
 	}
 
-	var value any
+	// puts maps storage key -> value within the module's namespace
+	puts := make(map[string]any)
 	var report string
 	switch mod {
 	case "karma":
@@ -52,9 +53,19 @@ func run(mod, in, dsn string) error {
 		if err != nil {
 			return err
 		}
-		value = data
+		puts["karma"] = data
 		report = fmt.Sprintf("karma: %d global items, %d servers, %d channels, %d channel items",
 			stats.GlobalItems, stats.Servers, stats.Channels, stats.ChannelItems)
+	case "markov":
+		dicts, stats, err := markovFromPerl(dump)
+		if err != nil {
+			return err
+		}
+		for key, chains := range dicts {
+			puts[key] = chains
+		}
+		report = fmt.Sprintf("markov: dictionaries %v, %d top words, total count %d",
+			stats.Dictionaries, stats.TopWords, stats.TotalCount)
 	default:
 		return fmt.Errorf("no transformer for module %q yet", mod)
 	}
@@ -69,9 +80,11 @@ func run(mod, in, dsn string) error {
 		return err
 	}
 	defer store.Close()
-	if err := store.Put(mod, mod, value); err != nil {
-		return err
+	for key, value := range puts {
+		if err := store.Put(mod, key, value); err != nil {
+			return err
+		}
+		fmt.Println("imported into", mod, "/", key)
 	}
-	fmt.Println("imported into", mod, "/", mod)
 	return nil
 }
