@@ -26,6 +26,7 @@ import (
 	"go-botje/modules/ego"
 	"go-botje/modules/karma"
 	"go-botje/modules/lastseen"
+	"go-botje/modules/llm"
 	"go-botje/modules/markov"
 	"go-botje/modules/pacman"
 	"go-botje/modules/pizza"
@@ -196,6 +197,7 @@ func modules() []module.Module {
 		ego.New(),
 		karma.New(),
 		lastseen.New(),
+		llm.New(),
 		markov.New(),
 		pacman.New(),
 		pizza.New(),
