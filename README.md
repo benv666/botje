@@ -79,6 +79,8 @@ viewers (nc in a pipe) show nothing until you type.
 | wiki | `!wiki <query>`, top 3 Wikipedia hits (15s per-channel spam brake) |
 | urband | `!ud <term>` via RapidAPI Urban Dictionary; needs `conf urband_rapidapi_key=...` |
 | wolframalpha | `!wa <query>`; needs `conf wolframalpha_appid=...` |
+| remind | `!remind <min> <hour> <day> <mon> <dow> <msg>` (cron, day/month names ok), `!remind show\|clear <ids>`; `!remember <name> <val>` / `!recall <name> [n]` / `!forget <name>` notepad (last 3 per name) |
+| llm | `!gpt <q>` (OpenAI), `!claude [model] <q>` (Bedrock), `!oi [model] <q>` (Ollama); per-channel history; keys in `conf llm_openai_key` / `llm_aws_key`+`llm_aws_secret` / `llm_ollama_url` |
 | core | `!more [command]` pages long replies |
 
 Unknown `!commands` get a Levenshtein did-you-mean.
