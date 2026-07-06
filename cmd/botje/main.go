@@ -32,6 +32,9 @@ import (
 	"go-botje/modules/rss"
 	"go-botje/modules/ticker"
 	"go-botje/modules/tinyurl"
+	"go-botje/modules/urband"
+	"go-botje/modules/wiki"
+	"go-botje/modules/wolframalpha"
 )
 
 const usage = `usage: botje <standalone|adduser|hash|keeper|core> [flags]
@@ -198,5 +201,8 @@ func modules() []module.Module {
 		rss.New(),
 		ticker.New(),
 		tinyurl.New(),
+		urband.New(),
+		wiki.New(),
+		wolframalpha.New(),
 	}
 }

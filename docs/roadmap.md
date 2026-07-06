@@ -39,12 +39,10 @@ Order by daily-use value, simplest first within tiers:
 - [x] pizza (timers)
 - [x] markov (+ dictionary migration, 29 MB)
 - [x] ticker
-- [ ] kind
-- [ ] wiki, urband, wolframalpha
-- [ ] search (replaces google: SearXNG backend, DDG lite fallback)
+- dropped by BenV 2026-07-06: kind, search, nagios
+- [x] wiki, urband, wolframalpha
 - [ ] remind (cron reminders + remember/recall, promoted from inactive)
 - [ ] llm (unified: openai + bedrock + ollama)
-- [ ] nagios
 - [ ] optional/inactive: floodkick, qrcode, urlpeek, nectarine, sdcv/spell (postponed by decision)
 - dropped: workhours, todo (was never finished), ps3_proxy
 
