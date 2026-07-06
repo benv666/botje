@@ -14,6 +14,22 @@ use Scalar::Util qw(blessed reftype);
 my ($file) = @ARGV;
 die "usage: dump.pl <module.dat>\n" unless defined $file && -r $file;
 
+# Some .dat files embed DateTime objects whose frozen timezone submodule
+# (Europe/Amsterdam) was dropped from newer DateTime, merged into
+# Brussels: the same breakage BenV hacked around live by copying
+# Brussels.pm. Storable needs the class to bless into at thaw time. We
+# only read epoch, which is timezone independent, so alias Amsterdam to
+# the present Brussels (identical CET/CEST spans anyway) before retrieve.
+BEGIN {
+    eval {
+        require DateTime::TimeZone::Europe::Brussels;
+        $INC{'DateTime/TimeZone/Europe/Amsterdam.pm'} = 1;
+        no strict 'refs';
+        @{'DateTime::TimeZone::Europe::Amsterdam::ISA'}
+            = ('DateTime::TimeZone::Europe::Brussels');
+    };
+}
+
 my $data = Storable::retrieve($file);
 strip($data);
 
