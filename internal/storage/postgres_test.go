@@ -36,11 +36,19 @@ func pgDSN(t *testing.T) string {
 	addr := strings.TrimSpace(strings.Split(string(port), "\n")[0])
 	dsn := fmt.Sprintf("postgres://postgres:botje-test@%s/postgres", addr)
 
+	// initdb restarts postgres once; require two consecutive ready
+	// probes so we do not connect into the pre-restart window
 	deadline := time.Now().Add(60 * time.Second)
+	ready := 0
 	for time.Now().Before(deadline) {
 		err = exec.Command("docker", "exec", id, "pg_isready", "-U", "postgres").Run()
 		if err == nil {
-			return dsn
+			ready++
+			if ready >= 2 {
+				return dsn
+			}
+		} else {
+			ready = 0
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

@@ -28,6 +28,7 @@ import (
 	"go-botje/modules/lastseen"
 	"go-botje/modules/pacman"
 	"go-botje/modules/pizza"
+	"go-botje/modules/rss"
 	"go-botje/modules/tinyurl"
 )
 
@@ -191,6 +192,7 @@ func modules() []module.Module {
 		lastseen.New(),
 		pacman.New(),
 		pizza.New(),
+		rss.New(),
 		tinyurl.New(),
 	}
 }
