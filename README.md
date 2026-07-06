@@ -74,6 +74,7 @@ viewers (nc in a pipe) show nothing until you type.
 | pacman | messages starting with 2+ dots (exactly 2: 70% ignored) |
 | pizza | `!pizza`/`!timer <timespec> [r{...}] [msg]`, `when <id>`, `clear [id]`, `start`/`stop` stopwatch; timespec: `18:30`, `24-12-2026`, `+2h30m`, weekdays, repeats `r{1d}` (min 30 min) |
 | rss | `!rss add <url> [refresh=N] [#chan\|query] [tag=X] [grep="re"]`, `del`, `list [url]`, `last <key>`, `refresh <key>`, `!rss <id>` / bare `!<id>` recalls (repeat to page) |
+| ticker | `!ticker add\|del\|show SYM [height]`, `setalarm SYM high= low= up= down=`, `delalarm`, `refresh`, `list`, bare `!SYM [height]`; BTC/ETH builtin, stocks need `conf ticker_alphavantage_key=...` |
 | tinyurl | `!tinyurl <url>`, auto-shortens channel URLs over 40 chars |
 | core | `!more [command]` pages long replies |
 
