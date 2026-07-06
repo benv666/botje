@@ -37,7 +37,7 @@ Order by daily-use value, simplest first within tiers:
 - [x] tinyurl
 - [x] rss (the big one; fix the short-code collision)
 - [x] pizza (timers)
-- [ ] markov (+ dictionary migration, 29 MB)
+- [x] markov (+ dictionary migration, 29 MB)
 - [ ] ticker
 - [ ] kind
 - [ ] wiki, urband, wolframalpha
