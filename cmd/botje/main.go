@@ -29,6 +29,7 @@ import (
 	"go-botje/modules/markov"
 	"go-botje/modules/pacman"
 	"go-botje/modules/pizza"
+	"go-botje/modules/remind"
 	"go-botje/modules/rss"
 	"go-botje/modules/ticker"
 	"go-botje/modules/tinyurl"
@@ -198,6 +199,7 @@ func modules() []module.Module {
 		markov.New(),
 		pacman.New(),
 		pizza.New(),
+		remind.New(),
 		rss.New(),
 		ticker.New(),
 		tinyurl.New(),
