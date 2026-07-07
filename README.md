@@ -48,7 +48,7 @@ sources it.
 | `BOTJE_IRC_TLS` | `false`/`no`/`0` disables TLS (default on) |
 | `BOTJE_NETWORK` | network name (default `junerules`) |
 | `BOTJE_NICK` | bot nick (default `Meretrix`) |
-| `BOTJE_CHANNELS` | comma-separated channels (default `#testing`) |
+| `BOTJE_CHANNELS` | comma-separated channels (default `#testing`); seeds the autojoin set on the FIRST boot only, after that storage wins (manage via telnet `join`/`part` or /invite) |
 | `BOTJE_ADMIN` | telnet admin address (default `127.0.0.1:1924`), empty disables |
 | `BOTJE_SOCKET` | keeper unix socket (default `/run/keeper/keeper.sock`) |
 | `BOTJE_PG_DSN` | postgres storage (`postgres://user:pass@host:port/db`); unset = in-memory, gone at exit |
@@ -90,10 +90,17 @@ BOTJE_PG_DSN=... ./bin/botje adduser benv somepass   # insert or update
 ```
 
 Then `telnet 127.0.0.1 1924`, log in, `help` lists commands. Builtins:
-`help`, `conf [setting[=value]]`, `status`, `callstats`, `adduser`,
-`passwd`, `users`, `quit`. Superuser-only commands stay hidden from
-regular users. Three failed logins and it hangs up on you
-("H-h-h-h-HACKER!!!"). The Perl eval backdoor does not exist here.
+`help`, `conf [setting[=value]]`, `join <chan>`, `part <chan>`,
+`status`, `callstats`, `adduser`, `passwd`, `users`, `quit`.
+Superuser-only commands stay hidden from regular users. Three failed
+logins and it hangs up on you ("H-h-h-h-HACKER!!!"). The Perl eval
+backdoor does not exist here.
+
+Channels and `conf` changes persist in storage: `join`/`part` manage
+the autojoin set at runtime, a `/invite` makes the bot join and adds
+the channel to the set, and settings changed via `conf x=y` survive
+restarts. `BOTJE_CHANNELS` only seeds the set on the very first boot
+(with in-memory storage every boot is a first boot).
 
 Note: the `login:` prompt has no trailing newline; line-buffered
 viewers (nc in a pipe) show nothing until you type.

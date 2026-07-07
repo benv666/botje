@@ -91,6 +91,11 @@ type core struct {
 	conn    *irc.Conn // nil while disconnected
 	session *irc.Session
 	backoff irc.Backoff
+
+	// channels is the persisted autojoin set (storage core/channels).
+	// The flags only seed it on the very first boot; after that telnet
+	// join/part and invites manage it.
+	channels []string
 }
 
 // Run connects and dispatches until ctx is cancelled, reconnecting
@@ -111,10 +116,42 @@ func Run(ctx context.Context, cfg Config) error {
 	for _, name := range ircEvents {
 		c.bus.RegisterEvent(name)
 	}
+	// conf values set at runtime (telnet conf x=y) persist in storage;
+	// load them before any setting is created so they win over defaults.
+	var storedConf map[string]string
+	if _, err := cfg.Store.Get("core", "conf", &storedConf); err != nil {
+		slog.Error("core: load stored conf", "err", err)
+	} else if storedConf != nil {
+		c.conf.LoadStored(storedConf)
+	}
 	c.conf.OnChange = func(name string) {
+		if err := cfg.Store.Put("core", "conf", c.conf.Stored()); err != nil {
+			slog.Error("core: save conf", "err", err)
+		}
 		c.bus.Submit(&bus.Event{Name: "config_changed", Msg: name, Extra: map[string]any{}})
 	}
 	c.conf.CreateInt("anti_flood_max_lines", 4)
+
+	// the persisted channel set wins over the flags; the flags seed it
+	// on the very first boot only
+	if ok, err := cfg.Store.Get("core", "channels", &c.channels); err != nil {
+		slog.Error("core: load channels", "err", err)
+	} else if !ok {
+		c.channels = slices.Clone(cfg.Channels)
+		c.saveChannels()
+	}
+	c.bus.RegisterHook("core", "IRC_INVITE", func(ev *bus.Event) (bus.Handled, any) {
+		ch, _ := ev.Extra["channel"].(string)
+		if ch == "" {
+			return bus.None, nil
+		}
+		slog.Info("core: invited, joining", "channel", ch, "by", ev.Sender.Nick)
+		c.addChannel(ch)
+		if c.session != nil {
+			c.session.JoinChannels([]string{ch})
+		}
+		return bus.None, nil
+	})
 
 	c.pager = pager.New(c.sch, func(channel, line string) { c.privmsg(channel, line) })
 	c.pager.MaxLines = func() int { return c.conf.Int("anti_flood_max_lines") }
@@ -191,7 +228,44 @@ func (c *core) adminCommands() []admin.Spec {
 	return append(specs, c.builtinSpecs()...)
 }
 
-var confRe = regexp.MustCompile(`^(?i)conf(?:\s+([^=\s]+)\s*(?:=\s*(.+))?)?$`)
+// addChannel puts a channel in the autojoin set (case-insensitive,
+// like the ircd) and persists. Reports whether it was new.
+func (c *core) addChannel(ch string) bool {
+	if slices.ContainsFunc(c.channels, func(have string) bool {
+		return strings.EqualFold(have, ch)
+	}) {
+		return false
+	}
+	c.channels = append(c.channels, ch)
+	c.saveChannels()
+	return true
+}
+
+// removeChannel drops a channel from the autojoin set and persists.
+// Reports whether it was present.
+func (c *core) removeChannel(ch string) bool {
+	n := len(c.channels)
+	c.channels = slices.DeleteFunc(c.channels, func(have string) bool {
+		return strings.EqualFold(have, ch)
+	})
+	if len(c.channels) == n {
+		return false
+	}
+	c.saveChannels()
+	return true
+}
+
+func (c *core) saveChannels() {
+	if err := c.cfg.Store.Put("core", "channels", c.channels); err != nil {
+		slog.Error("core: save channels", "err", err)
+	}
+}
+
+var (
+	confRe = regexp.MustCompile(`^(?i)conf(?:\s+([^=\s]+)\s*(?:=\s*(.+))?)?$`)
+	joinRe = regexp.MustCompile(`^(?i)join\s+(\S+)$`)
+	partRe = regexp.MustCompile(`^(?i)part\s+(\S+)$`)
+)
 
 func (c *core) builtinSpecs() []admin.Spec {
 	return []admin.Spec{
@@ -222,6 +296,41 @@ func (c *core) builtinSpecs() []admin.Spec {
 					}
 					return fmt.Sprintf("{g}%s = %s{/}", g[1], g[2])
 				}
+			},
+		},
+		{
+			Name:  "join",
+			Match: joinRe,
+			Help:  "Join a channel and add it to the autojoin set",
+			Args:  []string{"<channel>"},
+			Su:    true,
+			Run: func(_, line string) string {
+				ch := joinRe.FindStringSubmatch(line)[1]
+				added := c.addChannel(ch)
+				if c.session != nil {
+					c.session.JoinChannels([]string{ch})
+				}
+				if !added {
+					return fmt.Sprintf("{y}%s{/} was already in the autojoin set, join sent anyway.", ch)
+				}
+				return fmt.Sprintf("{g}Joining %s{/} (persisted).", ch)
+			},
+		},
+		{
+			Name:  "part",
+			Match: partRe,
+			Help:  "Leave a channel and drop it from the autojoin set",
+			Args:  []string{"<channel>"},
+			Su:    true,
+			Run: func(_, line string) string {
+				ch := partRe.FindStringSubmatch(line)[1]
+				if !c.removeChannel(ch) {
+					return fmt.Sprintf("{r}Error:{/} %s is not in the autojoin set.", ch)
+				}
+				if c.session != nil && c.conn != nil {
+					c.conn.Write("PART " + ch)
+				}
+				return fmt.Sprintf("{g}Left %s{/} (removed from autojoin).", ch)
 			},
 		},
 		{
@@ -331,10 +440,9 @@ func (c *core) connect() {
 	c.conn, c.session = conn, sess
 
 	sess.Register()
-	channels := c.cfg.Channels
 	c.sch.After(c.cfg.JoinDelay, func() {
 		if c.session == sess { // still this connection
-			sess.JoinChannels(channels)
+			sess.JoinChannels(c.channels)
 		}
 	})
 }

@@ -123,10 +123,20 @@ func (c *Conf) Set(name, raw string) error {
 		return fmt.Errorf("conf: %q is not a valid %s for %s", raw, s.kind, name)
 	}
 	s.raw = raw
+	c.stored[name] = raw
 	if c.OnChange != nil {
 		c.OnChange(name)
 	}
 	return nil
+}
+
+// Stored returns the values a next run should feed to LoadStored:
+// everything explicitly Set plus loaded values whose setting has not
+// been created (yet) this run. Defaults are never included, so a
+// changed default applies to installations that never touched the
+// setting.
+func (c *Conf) Stored() map[string]string {
+	return maps.Clone(c.stored)
 }
 
 // read returns the effective raw value (file override wins) after
