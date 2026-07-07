@@ -1,7 +1,7 @@
 # go-botje
 
 Ground-up Go rewrite of botje, the Perl IRC bot from ~2007 that runs as
-nick **hoer** on irc.benv.junerules.com. Goal: single Go binary,
+nick **hoer** on the Junerules irc server. Goal: single Go binary,
 functional parity or better. Design and progress live in
 `docs/architecture.md` and `docs/roadmap.md`; per-session status in
 `CLAUDE.md`.
@@ -25,7 +25,7 @@ never as hoer.
 ```
 make run
 # or with flags:
-go run ./cmd/botje standalone -addr irc.benv.junerules.com:6669 -tls \
+go run ./cmd/botje standalone -addr irc.example.com:6669 -tls \
     -nick Meretrix -channels "#testing" -admin 127.0.0.1:1924
 ```
 
@@ -36,19 +36,44 @@ Two process models:
 - **keeper + core**: `botje keeper` owns the IRC connection and relays it to
   `botje core` over a unix socket. The core (dispatcher + modules) can restart
   without dropping the IRC session, so module/bugfix upgrades are
-  reconnect-free. `docker compose --profile split up -d`, then
-  `docker compose restart core` to upgrade.
+  reconnect-free. This is what the compose stack runs.
 
-Environment:
+All flags read their default from a `BOTJE_*` environment variable
+(flags win). Site specifics live in the gitignored `.env`; `make run`
+sources it.
 
 | var | meaning |
 |-----|---------|
+| `BOTJE_IRC_ADDR` | IRC server `host:port`. Required, no built-in default |
+| `BOTJE_IRC_TLS` | `false`/`no`/`0` disables TLS (default on) |
+| `BOTJE_NETWORK` | network name (default `junerules`) |
+| `BOTJE_NICK` | bot nick (default `Meretrix`) |
+| `BOTJE_CHANNELS` | comma-separated channels (default `#testing`) |
+| `BOTJE_ADMIN` | telnet admin address (default `127.0.0.1:1924`), empty disables |
+| `BOTJE_SOCKET` | keeper unix socket (default `/run/keeper/keeper.sock`) |
 | `BOTJE_PG_DSN` | postgres storage (`postgres://user:pass@host:port/db`); unset = in-memory, gone at exit |
 | `BOTJE_SUPERUSER` | admin superuser bootstrap, `name:password` (plaintext, dev) or `name:bcrypt-hash` |
 | `BOTJE_LIVE_TEST` | `1` enables the live integration tests |
 | `BOTJE_PG_TEST_DSN` | reuse an existing postgres for the storage conformance tests instead of docker |
 
 Storage schema is created automatically at boot (embedded migrations).
+
+## Docker deployment
+
+`docker-compose.yml` runs keeper + core + postgres; it is static, all
+site config comes from `.env` (copy `.env.example`). First run:
+
+```
+cp .env.example .env        # fill in BOTJE_IRC_ADDR, POSTGRES_PASSWORD, ...
+make keeper-image           # builds go-botje:keeper-<date>; set the tag in .env
+docker compose up -d
+```
+
+The keeper runs a pinned image tag (`BOTJE_KEEPER_IMAGE`) with no build
+section, so `docker compose build && docker compose up -d` upgrades the
+core reconnect-free and never recreates the keeper. To upgrade the
+keeper itself (rare, drops the IRC session for one reconnect): `make
+keeper-image`, bump the tag in `.env`, `docker compose up -d`.
 
 ## Telnet admin port
 
@@ -104,8 +129,10 @@ go run ./tools/migrate -module karma -in karma.json -dsn ...   # import into pos
 ```
 
 `dump.pl` needs only core Perl (Storable, JSON::PP). Transformers exist
-per module (karma so far); each new module port adds one. The karma path
-is verified against the live 1.3 MB IRC_Karma.dat snapshot.
+for karma, markov, ego and rss, all verified against the live .dat
+snapshots (karma 3889 items, markov 27614 words, ego 873 nicks, rss 25
+feeds). Ticker/remind/pizza/lastseen data is trivially recreated at
+cutover instead.
 
 ## Development notes
 
@@ -119,4 +146,5 @@ is verified against the live 1.3 MB IRC_Karma.dat snapshot.
   in the code near the fix. Known list: `docs/perl-reference/core-framework.md`
   plus doc comments in the packages.
 - Dependencies are deliberately few: pgx (postgres), rivo/uniseg
-  (grapheme-safe truncation), x/crypto (bcrypt). The IRC layer is stdlib.
+  (grapheme-safe truncation), x/crypto (bcrypt), robfig/cron (remind
+  schedule math). The IRC layer is stdlib.
