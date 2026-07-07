@@ -124,20 +124,45 @@ func adduser(args []string) int {
 	return 0
 }
 
+// envOr reads an environment default for a flag: flags always win,
+// .env/compose environment fills the gaps, code carries no
+// installation-specific values.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	switch os.Getenv(key) {
+	case "":
+		return fallback
+	case "0", "false", "no":
+		return false
+	}
+	return true
+}
+
 // standalone runs a single-process bot (core connects to IRC directly).
-// Defaults point at the junerules test setup: #testing as Meretrix,
-// never the live channels.
+// The server address has no built-in default: set -addr or
+// BOTJE_IRC_ADDR. Nick/channel defaults are the safe test setup
+// (Meretrix in #testing), never live channels.
 func standalone(args []string) int {
 	fs := flag.NewFlagSet("standalone", flag.ExitOnError)
 	var (
-		network  = fs.String("network", "junerules", "irc network name")
-		addr     = fs.String("addr", "irc.benv.junerules.com:6669", "server host:port")
-		useTLS   = fs.Bool("tls", true, "connect with TLS")
-		nick     = fs.String("nick", "Meretrix", "bot nick")
-		channels = fs.String("channels", "#testing", "comma-separated channels to join")
-		adminOn  = fs.String("admin", "127.0.0.1:1924", "telnet admin address, empty to disable")
+		network  = fs.String("network", envOr("BOTJE_NETWORK", "junerules"), "irc network name")
+		addr     = fs.String("addr", envOr("BOTJE_IRC_ADDR", ""), "server host:port (or BOTJE_IRC_ADDR)")
+		useTLS   = fs.Bool("tls", envBool("BOTJE_IRC_TLS", true), "connect with TLS")
+		nick     = fs.String("nick", envOr("BOTJE_NICK", "Meretrix"), "bot nick")
+		channels = fs.String("channels", envOr("BOTJE_CHANNELS", "#testing"), "comma-separated channels to join")
+		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
 	)
 	fs.Parse(args)
+	if *addr == "" {
+		fmt.Fprintln(os.Stderr, "no IRC server: set -addr or BOTJE_IRC_ADDR")
+		return 2
+	}
 	return runCore(coreOpts{
 		network: *network, addr: *addr, tls: *useTLS, nick: *nick,
 		channels: *channels, admin: *adminOn,
@@ -150,11 +175,11 @@ func standalone(args []string) int {
 func coreMode(args []string) int {
 	fs := flag.NewFlagSet("core", flag.ExitOnError)
 	var (
-		network  = fs.String("network", "junerules", "irc network name")
-		socket   = fs.String("socket", "/data/keeper.sock", "keeper unix socket")
-		nick     = fs.String("nick", "Meretrix", "bot nick")
-		channels = fs.String("channels", "#testing", "comma-separated channels to join")
-		adminOn  = fs.String("admin", "127.0.0.1:1924", "telnet admin address, empty to disable")
+		network  = fs.String("network", envOr("BOTJE_NETWORK", "junerules"), "irc network name")
+		socket   = fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "keeper unix socket")
+		nick     = fs.String("nick", envOr("BOTJE_NICK", "Meretrix"), "bot nick")
+		channels = fs.String("channels", envOr("BOTJE_CHANNELS", "#testing"), "comma-separated channels to join")
+		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
 	)
 	fs.Parse(args)
 	return runCore(coreOpts{
@@ -167,11 +192,15 @@ func coreMode(args []string) int {
 func keeperMode(args []string) int {
 	fs := flag.NewFlagSet("keeper", flag.ExitOnError)
 	var (
-		addr   = fs.String("addr", "irc.benv.junerules.com:6669", "server host:port")
-		useTLS = fs.Bool("tls", true, "connect with TLS")
-		socket = fs.String("socket", "/data/keeper.sock", "unix socket for the core")
+		addr   = fs.String("addr", envOr("BOTJE_IRC_ADDR", ""), "server host:port (or BOTJE_IRC_ADDR)")
+		useTLS = fs.Bool("tls", envBool("BOTJE_IRC_TLS", true), "connect with TLS")
+		socket = fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "unix socket for the core")
 	)
 	fs.Parse(args)
+	if *addr == "" {
+		fmt.Fprintln(os.Stderr, "no IRC server: set -addr or BOTJE_IRC_ADDR")
+		return 2
+	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

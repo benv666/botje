@@ -17,6 +17,10 @@ func TestLiveSmoke(t *testing.T) {
 	if os.Getenv("BOTJE_LIVE_TEST") != "1" {
 		t.Skip("set BOTJE_LIVE_TEST=1 for live tests against junerules #testing")
 	}
+	addr := os.Getenv("BOTJE_IRC_ADDR")
+	if addr == "" {
+		t.Skip("set BOTJE_IRC_ADDR for live tests (host:port, TLS)")
+	}
 
 	var mu sync.Mutex
 	joined := make(chan struct{})
@@ -36,7 +40,7 @@ func TestLiveSmoke(t *testing.T) {
 	lines := make(chan string, 256)
 	conn, err := Connect(ConnConfig{
 		Network: "junerules",
-		Addr:    "irc.benv.junerules.com:6669",
+		Addr:    addr,
 		TLS:     true,
 		OnLine:  func(l string) { lines <- l },
 		OnDisconnect: func(err error) {

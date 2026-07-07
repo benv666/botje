@@ -47,8 +47,8 @@ func TestRegisterSendsNickUser(t *testing.T) {
 
 func TestPingPongHighPriority(t *testing.T) {
 	f := newSess()
-	f.s.HandleLine("PING :irc.benv.junerules.com")
-	if !slices.Equal(f.high, []string{"PONG irc.benv.junerules.com"}) {
+	f.s.HandleLine("PING :irc.example.com")
+	if !slices.Equal(f.high, []string{"PONG irc.example.com"}) {
 		t.Fatalf("high = %q", f.high)
 	}
 	if len(f.events) != 0 {

@@ -31,7 +31,7 @@ Counts I/me/my (EN+NL: ik/mijn/mij) per nick. `!ego [nick]`. Auto-report every ~
 `!<item>++ / !<item>-- [# reason]`, `!<item>?`, `!wku/!wkd <item>` (reason lists). Per-channel + global karma. Kicker of the bot gets -1 "For kicking defenseless bots". Skips registered command words (avoids capturing passwords). Storage: karma, saved on every change. 1.3 MB live.
 
 ### IRC_ChatGPT (425 lines, MEDIUM)
-`!gpt <prompt>`, OpenAI chat completions, gpt-3.5-turbo, OPENAI_API_KEY env. Per-channel history (16 entries), in-memory only. Request queue serializes. Jailbreak persona prompts, last one (DAN) wins. Debug POST to http://192.168.178.2/anything on every request (drop in Go). Hardcoded user list.
+`!gpt <prompt>`, OpenAI chat completions, gpt-3.5-turbo, OPENAI_API_KEY env. Per-channel history (16 entries), in-memory only. Request queue serializes. Jailbreak persona prompts, last one (DAN) wins. Debug POST to a LAN httpbin on every request (drop in Go). Hardcoded user list.
 
 ### IRC_Google (412 lines, MEDIUM)
 `!google <q>`, `!next [n|last]` (max 3, per channel+nick memory). Scrapes google.nl HTML (brittle). Parses calculator one-box. 15s spam throttle.
@@ -75,7 +75,7 @@ Autoload names IRC_Test; only file is IRC_Test_rrqueue.pm (rr send-queue test sp
 ## INACTIVE (11)
 
 - IRC_Bedrock (pkg IRC_Claude, 514): `!claude [model] <prompt>`, AWS Bedrock SigV4, default model anthropic.claude-haiku-4-5, allowed-list in Conf claude_allowed_models. Long replies redirect to query.
-- IRC_Ollama (441): `!oi [model] <prompt>` against LAN Ollama 192.168.178.4:11434, Conf oi_allowed_models.
+- IRC_Ollama (441): `!oi [model] <prompt>` against the LAN Ollama box, Conf oi_allowed_models.
 - IRC_Floodkick (223): kick on >= 4 messages / > 600 chars in 12s. Random kick messages.
 - IRC_Nectarine (224): `!necta` now-playing from Nectarine demoscene radio (has an undeclared-var bug).
 - IRC_QRCode (189): `!qr <text>`: block-char QR whispered in query. Text::QRCode.
