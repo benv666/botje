@@ -14,8 +14,8 @@ func TestParseLine(t *testing.T) {
 	}{
 		{
 			"numeric with prefix",
-			":irc.benv.junerules.com 332 Meretrix #testing :the topic",
-			Line{Prefix: "irc.benv.junerules.com", Cmd: "332", Name: "RPL_TOPIC", Code: "332",
+			":irc.example.com 332 Meretrix #testing :the topic",
+			Line{Prefix: "irc.example.com", Cmd: "332", Name: "RPL_TOPIC", Code: "332",
 				Params: "Meretrix #testing :the topic"},
 			true,
 		},
@@ -28,8 +28,8 @@ func TestParseLine(t *testing.T) {
 		},
 		{
 			"no prefix",
-			"PING :irc.benv.junerules.com",
-			Line{Cmd: "PING", Name: "PING", Params: ":irc.benv.junerules.com"},
+			"PING :irc.example.com",
+			Line{Cmd: "PING", Name: "PING", Params: ":irc.example.com"},
 			true,
 		},
 		{
@@ -85,7 +85,7 @@ func TestParsePrefix(t *testing.T) {
 		{"nick@host.only", "nick", "", "host.only"},
 		{"nick!user.only", "nick", "user.only", ""},
 		{"justnick", "justnick", "", ""},
-		{"irc.benv.junerules.com", "irc.benv.junerules.com", "", ""},
+		{"irc.example.com", "irc.example.com", "", ""},
 		// perl's non-greedy backtracking puts everything before @ in user
 		{"a!b!c@d", "a", "b!c", "d"},
 		{"", "", "", ""},

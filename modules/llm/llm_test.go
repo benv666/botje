@@ -324,13 +324,13 @@ func TestBedrockModelOverride(t *testing.T) {
 
 func TestOllamaLocal(t *testing.T) {
 	f := newFixture(t)
-	f.cf.Set("llm_ollama_url", "http://192.168.178.4:11434")
+	f.cf.Set("llm_ollama_url", "http://ollama.example:11434")
 	f.say("BenV", "!oi hallo daar")
 	if len(f.calls) != 1 {
 		t.Fatalf("calls = %d", len(f.calls))
 	}
 	c := f.calls[0]
-	if c.url != "http://192.168.178.4:11434/api/chat" || c.signed {
+	if c.url != "http://ollama.example:11434/api/chat" || c.signed {
 		t.Fatalf("call = %+v", c)
 	}
 	var req struct {

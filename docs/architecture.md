@@ -8,7 +8,7 @@ Status: PROPOSAL, not yet debated with BenV. Open questions at the bottom.
 
 - No external IRC/bot frameworks. IRC protocol layer is ours, stdlib + crypto/tls. Same reasoning as the Perl bot: full control over flood behavior, splitting, quirks.
 - Single binary, modules compiled in. A module is a Go package implementing the Module interface, registered in a registry. Enable/disable per module at runtime (config + admin port), no dynamic loading.
-- TDD throughout. The protocol/flood/colorize/pager layers are pure functions wherever possible, so they get table-driven unit tests. Integration tests run against irc.benv.junerules.com:6669 TLS, channel #testing, gated behind an env var.
+- TDD throughout. The protocol/flood/colorize/pager layers are pure functions wherever possible, so they get table-driven unit tests. Integration tests run against the junerules ircd (BOTJE_IRC_ADDR) TLS, channel #testing, gated behind an env var.
 
 ## Process model: connection keeper + core (DECIDED 2026-07-03)
 
@@ -90,7 +90,7 @@ Karma (1.3 MB), Markov (29 MB), Ego, RSS feeds+subscriptions, Ticker, Kind, Last
 
 - Unit: parser (RFC1459 lines, numerics, prefixes), flood queue timing (fake clock), wrap/truncate (UTF-8 edge cases, grapheme boundaries), colorize, pager, storage atomicity, scheduler, each module's command handling with a scripted fake bus.
 - Golden transcripts: recorded IRC exchanges as testdata, replayed through the full stack.
-- Integration (env-gated, BOTJE_LIVE_TEST=1): connect to irc.benv.junerules.com:6669 TLS, join #testing, exercise join/msg/flood/reconnect against the real ircd. Never in #rss or other live channels. Test nick, not hoer.
+- Integration (env-gated, BOTJE_LIVE_TEST=1): connect to the junerules ircd (BOTJE_IRC_ADDR) TLS, join #testing, exercise join/msg/flood/reconnect against the real ircd. Never in #rss or other live channels. Test nick, not hoer.
 - Module parity checks: for RSS/Karma/Ticker, feed the same inputs to Perl and Go and diff outputs (where practical).
 
 ## Decisions log

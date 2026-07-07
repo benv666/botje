@@ -3,7 +3,7 @@
 ## Production (Uil, /docker/botje)
 
 - Container Botje-Owl, image botje:<IMAGE_TAG> (date-tagged, e.g. 04_06_2026), built via Makefile `botje` target.
-- Compose: /docker/botje/docker-compose.yml. Volume mounts/data -> /data (all persistent state). Port 127.0.0.1:1924:1924 (telnet control, loopback only). extra_hosts pins benv.junerules.com -> 192.168.178.2. restart unless-stopped. Healthcheck: nc -vnz localhost 1924.
+- Compose: /docker/botje/docker-compose.yml. Volume mounts/data -> /data (all persistent state). Port 127.0.0.1:1924:1924 (telnet control, loopback only). extra_hosts pins the ircd FQDN to its LAN address. restart unless-stopped. Healthcheck: nc -vnz localhost 1924.
 - Env: COLUMNS=280, TZ=Europe/Amsterdam, VERBOSE=-v, secrets from .env: OPENAI_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. NOTE: .env holds plaintext keys and is inside the reference tarball copy too.
 - Update flow: build date-tagged image, bump IMAGE_TAG in .env, ./restart (= ./stop && ./run). Hot module fixes: Makefile syncmod docker-cps modules into the container, reload via telnet 1924.
 - Test stack: src/botje-hg/docker-compose.yaml, container Botje-Test, mounts ./testdata:/data, VERBOSE='-v -v -v'.
@@ -15,7 +15,7 @@ Alpine two-stage. Runtime: perl + libs + sdcv (+ dict data in docker/root/usr/lo
 ## Config and state
 
 - botje.cfg: only storage backend (storage_method=file, storage_dir=/data/) + superuser bootstrap. Everything else lives in Storage .dat files, edited at runtime via telnet conf command.
-- IRC connection details live in IRC.dat (serverlist): host irc.benv.junerules.com, nick hoer. Auth state in Auth.dat / IRC_Auth.dat. Runtime settings in Conf.dat (command_port 1924, markov settings, allowed model lists, fetcher_aws_credentials).
+- IRC connection details live in IRC.dat (serverlist): host = the junerules ircd FQDN, nick hoer. Auth state in Auth.dat / IRC_Auth.dat. Runtime settings in Conf.dat (command_port 1924, markov settings, allowed model lists, fetcher_aws_credentials).
 
 ## Live .dat inventory (2026-07-03 snapshot in reference/mounts/data/)
 
