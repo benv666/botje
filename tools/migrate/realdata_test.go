@@ -8,6 +8,7 @@ import (
 
 	"go-botje/modules/ego"
 	"go-botje/modules/rss"
+	"go-botje/modules/ticker"
 )
 
 // dumpDat runs dump.pl on a reference .dat, skipping when the gitignored
@@ -75,4 +76,54 @@ func TestRSSRealData(t *testing.T) {
 		t.Errorf("items = %d, with id+time = %d", items, withID)
 	}
 	t.Logf("migrated %d feeds, %d history items", n, items)
+}
+
+func TestTickerRealData(t *testing.T) {
+	dump := dumpDat(t, "IRC_Ticker.dat")
+	data, stats, err := ticker.MigrateFromPerl(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawTickers := dump["tickers"].(map[string]any)
+	if stats.Tickers != len(rawTickers) {
+		t.Errorf("tickers: transformed %d, dump has %d", stats.Tickers, len(rawTickers))
+	}
+	// independent recount of data points that carry a time key
+	want := 0
+	for _, pts := range dump["tickerdata"].(map[string]any) {
+		for _, p := range pts.([]any) {
+			if _, ok := p.(map[string]any)["time"]; ok {
+				want++
+			}
+		}
+	}
+	got := 0
+	for _, pts := range data.Data {
+		got += len(pts)
+	}
+	if got != want || stats.Points != want {
+		t.Errorf("points: transformed %d (stats %d), dump has %d timed points", got, stats.Points, want)
+	}
+	// every subscription's alarms became numbers > 0 (the live data
+	// has rise/drop/up/down set on both tickers)
+	alarms := 0
+	for _, ts := range data.Tickers {
+		for _, byChan := range ts.Subscriptions {
+			for _, byUser := range byChan {
+				for _, si := range byUser {
+					for name, v := range si.Alarms {
+						if v <= 0 {
+							t.Errorf("alarm %s = %v, want > 0", name, v)
+						}
+						alarms++
+					}
+				}
+			}
+		}
+	}
+	if stats.Subscriptions == 0 || alarms == 0 {
+		t.Errorf("subs = %d, alarms = %d, want > 0", stats.Subscriptions, alarms)
+	}
+	t.Logf("migrated %d tickers, %d subscriptions, %d points, %d alarms",
+		stats.Tickers, stats.Subscriptions, stats.Points, alarms)
 }
