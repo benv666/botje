@@ -17,6 +17,7 @@ import (
 	"go-botje/internal/storage"
 	"go-botje/modules/ego"
 	"go-botje/modules/rss"
+	"go-botje/modules/ticker"
 )
 
 func main() {
@@ -82,6 +83,15 @@ func run(mod, in, dsn string) error {
 		}
 		puts["feeds"] = data
 		report = fmt.Sprintf("rss: %d feeds migrated", n)
+	case "ticker":
+		data, stats, err := ticker.MigrateFromPerl(dump)
+		if err != nil {
+			return err
+		}
+		puts["tickers"] = data.Tickers
+		puts["tickerdata"] = data.Data
+		report = fmt.Sprintf("ticker: %d tickers, %d subscriptions, %d data points",
+			stats.Tickers, stats.Subscriptions, stats.Points)
 	default:
 		return fmt.Errorf("no transformer for module %q yet", mod)
 	}

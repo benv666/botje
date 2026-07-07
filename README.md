@@ -129,10 +129,10 @@ go run ./tools/migrate -module karma -in karma.json -dsn ...   # import into pos
 ```
 
 `dump.pl` needs only core Perl (Storable, JSON::PP). Transformers exist
-for karma, markov, ego and rss, all verified against the live .dat
-snapshots (karma 3889 items, markov 27614 words, ego 873 nicks, rss 25
-feeds). Ticker/remind/pizza/lastseen data is trivially recreated at
-cutover instead.
+for karma, markov, ego, rss and ticker, all verified against the live
+.dat snapshots (karma 3889 items, markov 27614 words, ego 873 nicks,
+rss 25 feeds, ticker 2 symbols + alarms). Remind/pizza/lastseen data is
+trivially recreated at cutover instead.
 
 ## Development notes
 
