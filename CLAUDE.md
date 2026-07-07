@@ -62,6 +62,26 @@ Fix, do not port: RSS short-code collision (the !LI6 incident, see docs/perl-ref
 5. [x] Ticker data migration transformer (tickers + tickerdata).
 6. [x] (carried over) channel persistence + telnet join/part + invite auto-join: channels are currently flag-only, reset every boot, no runtime management.
 
+## TODO backlog (BenV, 2026-07-07): logging, example module, refactors
+
+Planned with BenV, NOT started. Discuss open design points before building.
+
+1. [ ] Logger module: per-channel IRC logs + global ops log, written to a mounted folder.
+   - NOT a port: perl Log.pm was console/debug plumbing (named "log channels" to stdout); its per-IRC-channel file logging stayed a TODO from 2007 until the end. This is new capability.
+   - Per-channel logs: modules/logger hooks IRC_PRIVMSG/NOTICE/JOIN/PART/QUIT/KICK/MODE/TOPIC/INVITE, writes irssi-ish plain text to BOTJE_LOG_DIR/<network>/<channel>/YYYY-MM-DD.log (daily files = rotation for free). PREREQ core change: outbound messages emit no bus event today, so the bot's own lines would be missing; core.privmsg should submit the event with SenderMe set (perl parity question: hoer's sends did not re-enter the bus either, decide with BenV).
+   - Ops log: admin telnet connect/login success/login failure with remote addr, executed su commands, conf changes, module load errors, connect/reconnect, invite/join/part. Today this is slog-to-stderr only (docker logs). Recommended shape: a tee slog.Handler in core writing (leveled, no color) to BOTJE_LOG_DIR/ops.log alongside stderr, plus ADDING the missing slog calls in internal/admin (login attempts currently log nothing - BenV explicitly wants auth audit). Alternative shape (bus events ADMIN_LOGIN etc consumed by the logger module) is cleaner conceptually but more moving parts; decide.
+   - Deploy: compose mounts ./mounts/logs:/logs, BOTJE_LOG_DIR=/logs, .env.example entry. mounts/ already dockerignored. Nonroot uid 1000 must own the host dir (same lesson as the keepersock volume).
+   - Tests: formatting table-driven, day-rollover with fake clock, writes into t.TempDir.
+2. [ ] Example module: modules/example, a heavily commented skeleton exercising the full module.Context surface (command + default handler, bus hook, conf setting with stored value, storage round-trip, sched timer, fetch callback, pager reply, COMMAND admin spec). Perl equivalent was IRC_Test.pm (autoloaded; its invite handler moved into core). NOT in the autoload list, but kept compiling and loadable by its own test so it cannot rot. README pointer "writing a module: start here".
+3. [ ] Flood guard for un-joined channels: RSS/ticker broadcasts to a channel the bot is not in burn the shared 1 msg/s flood budget on ERR_CANNOTSENDTOCHAN rejects and delay real replies (diagnosed live 2026-07-07, 59 rejects/30min while #rss was pending invite). Fix-not-port: drop (or hold+log) channel-targeted privmsgs when the session is not in that channel; queries to nicks unaffected. Small, do it together with the logger so drops are visible in the ops log.
+4. [ ] Refactor candidates, ranked (plan only):
+   a. Markov save amplification: every 51st learned line rewrites the whole ~8.3 MB trie blob to postgres, synchronously on the dispatcher. Heaviest write in the bot, will only grow. Measure the Put latency on Uil first, then either dirty-flag + 60s flush (what architecture.md always wanted), or split the trie over per-top-word rows in a real table. Perl had the same save-every-51-lines cadence but wrote a local Storable file, so parity is not an argument for keeping the blob.
+   b. Central dirty-flag/flush layer in storage (Saver: MarkDirty + periodic flush + flush on unload); modules currently hand-roll save-on-change (ticker per fetch, rss on add/del, markov per 51 lines). Subsumes half of (a); do (a) and (b) as one design.
+   c. internal/core/core.go split: dispatcher, transport/reconnect, admin builtins, channel set, and privmsg pipeline all live in one ~600-line file now. Split into core.go / transport.go / builtins.go. Same session: dedupe the telnet test harness that is copy-pasted 3x in core_test.go (extract adminHarness).
+   d. Migration transformer placement: karma+markov transform in tools/migrate, ego/rss/ticker as modules/*/migrate.go. Unify on module-owned MigrateFromPerl.
+   e. cmd/botje/main.go: standalone/core/keeper duplicate the flag->Config wiring; fold into one shared flag helper.
+   f. (post-parity, big) bus.Event.Extra map[string]any stringly-typed access everywhere; promote the hot keys to typed fields once perl-parity pressure is gone. Touches every module, do last.
+
 ## Environment notes
 
 - Go toolchain: check `go version` locally before assuming.
