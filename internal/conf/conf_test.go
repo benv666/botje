@@ -187,3 +187,34 @@ func TestList(t *testing.T) {
 		t.Errorf("List = %v, want sorted [a b c]", got)
 	}
 }
+
+// Stored returns everything a next run must LoadStored to keep telnet
+// conf changes alive: explicitly Set values plus loaded values whose
+// setting has not been re-created yet. Defaults never leak in.
+func TestStoredRoundTrip(t *testing.T) {
+	c := New()
+	c.LoadStored(map[string]string{"sleeping_module_key": "abc"})
+	c.CreateInt("lines", 4)
+	c.CreateString("touched", "x")
+	if err := c.Set("touched", "y"); err != nil {
+		t.Fatal(err)
+	}
+	st := c.Stored()
+	if st["touched"] != "y" {
+		t.Fatalf("touched = %q, want y", st["touched"])
+	}
+	if st["sleeping_module_key"] != "abc" {
+		t.Fatalf("unclaimed stored value lost: %v", st)
+	}
+	if _, ok := st["lines"]; ok {
+		t.Fatalf("default leaked into stored: %v", st)
+	}
+
+	// second run: Stored feeds LoadStored, values survive
+	c2 := New()
+	c2.LoadStored(st)
+	c2.CreateString("touched", "x")
+	if got := c2.String("touched"); got != "y" {
+		t.Fatalf("after roundtrip touched = %q, want y", got)
+	}
+}
