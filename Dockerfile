@@ -9,8 +9,12 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /botje ./cmd/botje
 
 FROM alpine:3
+# /run/keeper must exist owned by the bot user: the keepersock named
+# volume copies its ownership on first use, and the nonroot keeper
+# cannot bind its unix socket in a root-owned dir
 RUN apk add --no-cache ca-certificates tzdata \
-	&& adduser -D -u 1000 botje
+	&& adduser -D -u 1000 botje \
+	&& mkdir -p /run/keeper && chown botje /run/keeper
 COPY --from=build /botje /usr/local/bin/botje
 USER botje
 ENV TZ=Europe/Amsterdam
