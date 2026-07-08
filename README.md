@@ -51,6 +51,7 @@ sources it.
 | `BOTJE_CHANNELS` | comma-separated channels (default `#testing`); seeds the autojoin set on the FIRST boot only, after that storage wins (manage via telnet `join`/`part` or /invite) |
 | `BOTJE_ADMIN` | telnet admin address (default `127.0.0.1:1924`), empty disables |
 | `BOTJE_SOCKET` | keeper unix socket (default `/run/keeper/keeper.sock`) |
+| `BOTJE_LOG_DIR` | file logging root: per-channel IRC logs + ops.log audit trail; empty disables |
 | `BOTJE_PG_DSN` | postgres storage (`postgres://user:pass@host:port/db`); unset = in-memory, gone at exit |
 | `BOTJE_SUPERUSER` | admin superuser bootstrap, `name:password` (plaintext, dev) or `name:bcrypt-hash` |
 | `BOTJE_LIVE_TEST` | `1` enables the live integration tests |
@@ -104,6 +105,33 @@ restarts. `BOTJE_CHANNELS` only seeds the set on the very first boot
 
 Note: the `login:` prompt has no trailing newline; line-buffered
 viewers (nc in a pipe) show nothing until you type.
+
+## Logging
+
+With `BOTJE_LOG_DIR` set (the compose stack mounts `./mounts/logs` and
+sets it automatically), the bot writes:
+
+- `<network>/<#channel>/YYYY-MM-DD.log`: plain-text channel logs
+  (messages incl. the bot's own, joins/parts/kicks/modes/topics),
+  daily files, colors stripped
+- `<network>/queries/<nick>/`: private messages
+- `<network>/server/`: quits and other channel-less events
+- `ops.log`: audit trail - telnet connections, login success/failure
+  with source address, executed admin commands (by name, never
+  arguments), conf changes, reconnects, module errors
+
+The host dir must be writable by the container user:
+`mkdir -p mounts/logs && sudo chown 1000 mounts/logs`. Channel logging
+lives in `modules/logger` (disable at runtime with
+`conf logger_dir=`); the ops log is core, always on when the dir is set.
+
+## Writing a module
+
+Start at `modules/example`: a working, heavily commented skeleton that
+exercises the whole module API (commands, default handlers, bus hooks,
+conf, storage, timers, async fetch, pager, telnet commands). It is not
+autoloaded; add it to `modules()` in cmd/botje/main.go to play with it
+live.
 
 ## IRC commands (modules so far)
 

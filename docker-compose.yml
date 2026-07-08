@@ -70,8 +70,12 @@ services:
       BOTJE_PG_DSN: postgres://botje:${POSTGRES_PASSWORD}@postgres:5432/botje?sslmode=disable
       # name:bcrypt-hash (from `botje hash <pass>`); optional
       BOTJE_SUPERUSER: ${BOTJE_SUPERUSER:-}
+      # per-channel IRC logs + ops.log (audit trail); the host dir must
+      # be writable by uid 1000: mkdir -p mounts/logs && sudo chown 1000 mounts/logs
+      BOTJE_LOG_DIR: /logs
     volumes:
       - keepersock:/run/keeper
+      - ./mounts/logs:/logs
     ports:
       - "127.0.0.1:1924:1924"
     healthcheck:
