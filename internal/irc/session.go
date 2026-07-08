@@ -331,6 +331,12 @@ func (s *Session) onRplTopic(line Line) {
 }
 
 // Channels lists channels the bot has joined, sorted.
+// InChannel reports whether the bot currently sits in a channel.
+func (s *Session) InChannel(channel string) bool {
+	_, ok := s.channels[channel]
+	return ok
+}
+
 func (s *Session) Channels() []string {
 	out := slices.Collect(maps.Keys(s.channels))
 	slices.Sort(out)
