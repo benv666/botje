@@ -3,7 +3,9 @@ package core
 import (
 	"bufio"
 	"context"
+	"io"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"go-botje/internal/auth"
 	"go-botje/internal/bus"
 	"go-botje/internal/irc/cmd"
+	"go-botje/internal/metrics"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
 )
@@ -585,5 +588,77 @@ func TestCorePrivmsgDropUnjoined(t *testing.T) {
 	h.send(":BenV!benv@host PRIVMSG #testing :!cast")
 	if got := h.expect("PRIVMSG #"); got != "PRIVMSG #testing :this one goes" {
 		t.Fatalf("first channel wire line = %q, want only the joined-channel message", got)
+	}
+}
+
+// the metrics endpoint reflects live bus activity and connection state.
+func TestCoreMetricsEndpoint(t *testing.T) {
+	reg := metrics.New()
+	client, server := net.Pipe()
+	metricsLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{
+			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
+			Store: storage.NewMemory(), Modules: []module.Module{&echoModule{}, &broadcaster{}},
+			Metrics: reg, MetricsAddr: metricsLn.Addr().String(),
+			Dial:      func() (net.Conn, error) { return client, nil },
+			JoinDelay: 10 * time.Millisecond,
+		})
+	}()
+	t.Cleanup(func() { cancel(); server.Close(); <-done })
+	// the listener we passed is only for Addr(); close it so core's own
+	// listen on the same addr can bind
+	metricsLn.Close()
+
+	r := bufio.NewReader(server)
+	// drive a command so a hook records a call
+	server.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(line, "JOIN #testing") {
+			break
+		}
+	}
+	server.Write([]byte(":Meretrix!b@h JOIN #testing\r\n"))
+	server.Write([]byte(":BenV!benv@host PRIVMSG #testing :!ping x\r\n"))
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(line, "pong x") {
+			break
+		}
+	}
+
+	// scrape
+	var body string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get("http://" + metricsLn.Addr().String() + "/metrics")
+		if err != nil {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		body = string(b)
+		if strings.Contains(body, "botje_connected") {
+			break
+		}
+	}
+	if !strings.Contains(body, "botje_connected 1") {
+		t.Errorf("no connected gauge:\n%s", body)
+	}
+	if !strings.Contains(body, `botje_hook_calls_total{event="IRC_PRIVMSG",module="broadcaster"}`) {
+		t.Errorf("no hook call counter:\n%s", body)
 	}
 }

@@ -52,6 +52,7 @@ sources it.
 | `BOTJE_ADMIN` | telnet admin address (default `127.0.0.1:1924`), empty disables |
 | `BOTJE_SOCKET` | keeper unix socket (default `/run/keeper/keeper.sock`) |
 | `BOTJE_LOG_DIR` | file logging root: per-channel IRC logs + ops.log audit trail; empty disables |
+| `BOTJE_METRICS` | Prometheus listen address (e.g. `127.0.0.1:9095`), serves `/metrics`; empty disables |
 | `BOTJE_PG_DSN` | postgres storage (`postgres://user:pass@host:port/db`); unset = in-memory, gone at exit |
 | `BOTJE_SUPERUSER` | admin superuser bootstrap, `name:password` (plaintext, dev) or `name:bcrypt-hash` |
 | `BOTJE_LIVE_TEST` | `1` enables the live integration tests |
@@ -132,6 +133,16 @@ exercises the whole module API (commands, default handlers, bus hooks,
 conf, storage, timers, async fetch, pager, telnet commands). It is not
 autoloaded; add it to `modules()` in cmd/botje/main.go to play with it
 live.
+
+## Metrics
+
+With `BOTJE_METRICS` set (compose publishes `127.0.0.1:9095`), the bot
+serves Prometheus text at `/metrics`: `botje_connected`,
+`botje_reconnects_total`, `botje_modules`, `botje_admin_logins_total{result}`,
+and per-hook `botje_hook_calls_total{module,event}` +
+`botje_hook_duration_seconds_sum` from the bus call stats. Point your
+Prometheus at it and graph in Grafana. Hand-rolled exposition, no
+client_golang dependency.
 
 ## IRC commands (modules so far)
 

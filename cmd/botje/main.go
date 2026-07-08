@@ -23,6 +23,7 @@ import (
 	"go-botje/internal/auth"
 	"go-botje/internal/core"
 	"go-botje/internal/keeper"
+	"go-botje/internal/metrics"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
 	"go-botje/internal/teelog"
@@ -162,6 +163,7 @@ func standalone(args []string) int {
 		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
 		cert     = fs.String("tls-cert", envOr("BOTJE_TLS_CERT", ""), "TLS client cert for oper certfp (or BOTJE_TLS_CERT)")
 		key      = fs.String("tls-key", envOr("BOTJE_TLS_KEY", ""), "TLS client key (or BOTJE_TLS_KEY)")
+		metrics  = fs.String("metrics", envOr("BOTJE_METRICS", ""), "prometheus listen addr, e.g. 127.0.0.1:9095 (or BOTJE_METRICS)")
 	)
 	fs.Parse(args)
 	if *addr == "" {
@@ -171,6 +173,7 @@ func standalone(args []string) int {
 	return runCore(coreOpts{
 		network: *network, addr: *addr, tls: *useTLS, nick: *nick,
 		channels: *channels, admin: *adminOn, cert: *cert, key: *key,
+		metrics: *metrics,
 	})
 }
 
@@ -185,11 +188,12 @@ func coreMode(args []string) int {
 		nick     = fs.String("nick", envOr("BOTJE_NICK", "Meretrix"), "bot nick")
 		channels = fs.String("channels", envOr("BOTJE_CHANNELS", "#testing"), "comma-separated channels to join")
 		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
+		metrics  = fs.String("metrics", envOr("BOTJE_METRICS", ""), "prometheus listen addr, e.g. 127.0.0.1:9095 (or BOTJE_METRICS)")
 	)
 	fs.Parse(args)
 	return runCore(coreOpts{
 		network: *network, socket: *socket, nick: *nick,
-		channels: *channels, admin: *adminOn,
+		channels: *channels, admin: *adminOn, metrics: *metrics,
 	})
 }
 
@@ -226,6 +230,7 @@ type coreOpts struct {
 	tls                                  bool
 	socket                               string // set = connect via keeper
 	cert, key                            string // client cert, standalone only
+	metrics                              string // prometheus listen addr, empty = off
 }
 
 func runCore(o coreOpts) int {
@@ -283,6 +288,10 @@ func runCore(o coreOpts) int {
 		Modules:   modules(),
 		Auth:      a,
 		AdminAddr: o.admin,
+	}
+	if o.metrics != "" {
+		cfg.Metrics = metrics.New()
+		cfg.MetricsAddr = o.metrics
 	}
 	if o.socket != "" {
 		// connect to the keeper instead of IRC; the keeper frames and
