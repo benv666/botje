@@ -15,7 +15,9 @@ import (
 // the five templates, verbatim: %l is the left margin, %s the nick slot
 var pacmans = []string{
 	"%l /~~\\\n%l( o <  . . . . . . %s\n%l \\__/\n",
-	"%l .-.\n%l/o < . . . . . %s\n%l \\_-'\n", // chomping pac-man (added, <=3 lines)
+	// fancy UTF-8 pac-man: shaded left edge (soft/anti-aliased look),
+	// rounded disc, eye, wedge mouth chomping filled dots toward the nick
+	"%l░▟▀▙\n%l▓█▝◣  ● ● ● %s\n%l░▜▄▛\n",
 	"%l .--.\n%l/ _.-' .-.   .-.  .-.   .''.\n%l\\  '-. '-'   '-'  '-'   '..'\n%l '--'\n",
 	"%l .-.   .-.     .--.\n%l| OO| | OO|   / _.-' .-.   .-.  .-.   .''.\n%l|   | |   |   \\  '-. '-'   '-'  '-'   '..'\n%l'^^^' '^^^'    '--'",
 	"%l (*<   .   .   .   %s\n",

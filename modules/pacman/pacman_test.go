@@ -102,8 +102,8 @@ func TestChompingVariant(t *testing.T) {
 	if len(f.sent) != 1 {
 		t.Fatalf("sent = %q", f.sent)
 	}
-	if !strings.Contains(f.sent[0], "/o <") || !strings.Contains(f.sent[0], "Verty") {
-		t.Fatalf("art = %q, want chomping variant with nick", f.sent[0])
+	if !strings.Contains(f.sent[0], "▝◣") || !strings.Contains(f.sent[0], "●") || !strings.Contains(f.sent[0], "Verty") {
+		t.Fatalf("art = %q, want fancy variant with eye/mouth, dots, and nick", f.sent[0])
 	}
 	// no more than 3 art lines
 	if n := strings.Count(strings.TrimRight(f.sent[0], "\n"), "\n") + 1; n > 3 {
