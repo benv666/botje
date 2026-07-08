@@ -32,10 +32,13 @@ import (
 
 // Config is what standalone mode needs to run one network.
 type Config struct {
-	Network   string
-	Addr      string // host:port
-	TLS       bool
-	Nick      string
+	Network string
+	Addr    string // host:port
+	TLS     bool
+	// CertFile/KeyFile: TLS client cert for standalone mode (under a
+	// keeper the keeper presents it)
+	CertFile, KeyFile string
+	Nick              string
 	Channels  []string
 	Store     storage.Store
 	Modules   []module.Module
@@ -412,10 +415,12 @@ func (c *core) loop(ctx context.Context) {
 func (c *core) connect() {
 	sess := irc.NewSession(c.cfg.Network, c.cfg.Nick, time.Now)
 	conn, err := irc.Connect(irc.ConnConfig{
-		Network: c.cfg.Network,
-		Addr:    c.cfg.Addr,
-		TLS:     c.cfg.TLS,
-		Dial:    c.cfg.Dial,
+		Network:  c.cfg.Network,
+		Addr:     c.cfg.Addr,
+		TLS:      c.cfg.TLS,
+		CertFile: c.cfg.CertFile,
+		KeyFile:  c.cfg.KeyFile,
+		Dial:     c.cfg.Dial,
 		OnLine: func(line string) {
 			c.work <- func() { sess.HandleLine(line) }
 		},

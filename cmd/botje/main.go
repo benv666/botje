@@ -159,6 +159,8 @@ func standalone(args []string) int {
 		nick     = fs.String("nick", envOr("BOTJE_NICK", "Meretrix"), "bot nick")
 		channels = fs.String("channels", envOr("BOTJE_CHANNELS", "#testing"), "comma-separated channels to join")
 		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
+		cert     = fs.String("tls-cert", envOr("BOTJE_TLS_CERT", ""), "TLS client cert for oper certfp (or BOTJE_TLS_CERT)")
+		key      = fs.String("tls-key", envOr("BOTJE_TLS_KEY", ""), "TLS client key (or BOTJE_TLS_KEY)")
 	)
 	fs.Parse(args)
 	if *addr == "" {
@@ -167,7 +169,7 @@ func standalone(args []string) int {
 	}
 	return runCore(coreOpts{
 		network: *network, addr: *addr, tls: *useTLS, nick: *nick,
-		channels: *channels, admin: *adminOn,
+		channels: *channels, admin: *adminOn, cert: *cert, key: *key,
 	})
 }
 
@@ -197,6 +199,8 @@ func keeperMode(args []string) int {
 		addr   = fs.String("addr", envOr("BOTJE_IRC_ADDR", ""), "server host:port (or BOTJE_IRC_ADDR)")
 		useTLS = fs.Bool("tls", envBool("BOTJE_IRC_TLS", true), "connect with TLS")
 		socket = fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "unix socket for the core")
+		cert   = fs.String("tls-cert", envOr("BOTJE_TLS_CERT", ""), "TLS client cert for oper certfp (or BOTJE_TLS_CERT)")
+		key    = fs.String("tls-key", envOr("BOTJE_TLS_KEY", ""), "TLS client key (or BOTJE_TLS_KEY)")
 	)
 	fs.Parse(args)
 	if *addr == "" {
@@ -206,7 +210,8 @@ func keeperMode(args []string) int {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := keeper.Run(ctx, keeper.Config{Addr: *addr, TLS: *useTLS, Socket: *socket}); err != nil {
+	if err := keeper.Run(ctx, keeper.Config{Addr: *addr, TLS: *useTLS, Socket: *socket,
+		CertFile: *cert, KeyFile: *key}); err != nil {
 		if ctx.Err() == nil {
 			slog.Error("keeper", "err", err)
 			return 1
@@ -219,6 +224,7 @@ type coreOpts struct {
 	network, addr, nick, channels, admin string
 	tls                                  bool
 	socket                               string // set = connect via keeper
+	cert, key                            string // client cert, standalone only
 }
 
 func runCore(o coreOpts) int {
@@ -268,6 +274,8 @@ func runCore(o coreOpts) int {
 		Network:   o.network,
 		Addr:      o.addr,
 		TLS:       o.tls,
+		CertFile:  o.cert,
+		KeyFile:   o.key,
 		Nick:      o.nick,
 		Channels:  strings.Split(o.channels, ","),
 		Store:     store,
