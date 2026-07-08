@@ -79,7 +79,10 @@ func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 	sess := &session{srv: s, conn: conn, state: stateUser,
 		remote: conn.RemoteAddr().String()}
-	slog.Info("admin: connection", "addr", sess.remote)
+	// debug, not info: the docker health check dials this port every 30s
+	// and would fill ops.log; anyone who actually tries to log in shows
+	// up via the login ok/failed lines
+	slog.Debug("admin: connection", "addr", sess.remote)
 	sess.write(doEcho)
 	sess.write("login: ")
 
