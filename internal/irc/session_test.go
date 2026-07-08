@@ -321,6 +321,23 @@ func TestJoinChannels(t *testing.T) {
 	}
 }
 
+// JoinChannels marks membership optimistically. Under a keeper a
+// resuming core re-JOINs channels the live session is already in; the
+// ircd sends no JOIN echo for those, so without this the core would
+// think it is in no channels (and drop all channel output).
+func TestJoinChannelsMarksMembership(t *testing.T) {
+	f := newSess()
+	f.s.JoinChannels([]string{"#testing", "#other"})
+	if !f.s.InChannel("#testing") || !f.s.InChannel("#other") {
+		t.Fatalf("channels not tracked after JoinChannels: %v", f.s.Channels())
+	}
+	// a later real JOIN echo must not break anything
+	f.s.HandleLine(":Meretrix!bot@host JOIN #testing")
+	if !f.s.InChannel("#testing") {
+		t.Fatal("echo cleared membership")
+	}
+}
+
 func TestBackoff(t *testing.T) {
 	t0 := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	var b Backoff

@@ -64,10 +64,21 @@ func (s *Session) Register() {
 }
 
 // JoinChannels sends a JOIN per channel (the owner schedules this 10s
-// after connect, like the Perl).
+// after connect, like the Perl) and marks each as joined optimistically.
+//
+// The optimistic mark matters under a keeper: a restarted core re-JOINs
+// channels the live IRC session is already in, and the ircd sends no
+// JOIN echo for an already-joined channel, so membership tracking would
+// otherwise stay empty and every channel message would be dropped. A
+// real echo later just refreshes the timestamp; a genuinely failed join
+// (banned, +i) leaves a stale mark, which at worst wastes flood budget
+// on that one channel, the pre-existing behavior.
 func (s *Session) JoinChannels(channels []string) {
 	for _, ch := range channels {
 		s.Send("JOIN " + ch)
+		if _, ok := s.channels[ch]; !ok {
+			s.channels[ch] = &channelState{joined: s.now()}
+		}
 	}
 }
 

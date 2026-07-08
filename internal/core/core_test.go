@@ -696,3 +696,18 @@ func TestCorePreservesArtWhitespace(t *testing.T) {
 		t.Fatalf("line 3 (after a blank line) = %q", got)
 	}
 }
+
+// keeper-resume: the core sends JOIN but the ircd echoes nothing (the
+// live session is already in the channel). Output to that channel must
+// still go out, not get dropped by the un-joined-channel guard.
+func TestCoreResumeNoJoinEchoStillSends(t *testing.T) {
+	h := newHarness(t, &broadcaster{})
+	h.expect("JOIN #testing") // core sends JOIN...
+	// ...but we deliberately send NO ":Meretrix JOIN #testing" echo,
+	// mimicking a resume under the keeper
+	h.send(":BenV!benv@host PRIVMSG #testing :!cast")
+	// broadcaster targets #notjoined then #testing; #testing must arrive
+	if got := h.expect("PRIVMSG #"); got != "PRIVMSG #testing :this one goes" {
+		t.Fatalf("resume send = %q, want the #testing message through", got)
+	}
+}
