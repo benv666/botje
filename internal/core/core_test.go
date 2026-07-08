@@ -123,6 +123,7 @@ func TestCoreCommandThroughModule(t *testing.T) {
 func TestCoreMoreWithNothing(t *testing.T) {
 	h := newHarness(t)
 	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
 	h.send(":BenV!benv@host PRIVMSG #testing :!more")
 	h.expect("PRIVMSG #testing :There is nothing more to display for you.")
 }
@@ -130,6 +131,7 @@ func TestCoreMoreWithNothing(t *testing.T) {
 func TestCoreSuggestion(t *testing.T) {
 	h := newHarness(t, &echoModule{})
 	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
 	h.send(":BenV!benv@host PRIVMSG #testing :!pign")
 	got := h.expect("Maybe you meant")
 	if !strings.Contains(got, "PRIVMSG #testing :BenV: Maybe you meant") ||
@@ -483,6 +485,7 @@ func TestCoreEmitsIRCSent(t *testing.T) {
 	cap := &sentCapture{}
 	h := newHarness(t, &echoModule{}, cap)
 	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
 	h.send(":BenV!benv@host PRIVMSG #testing :!ping hi\nthere")
 	h.expect("PRIVMSG #testing :")
 
@@ -495,5 +498,92 @@ func TestCoreEmitsIRCSent(t *testing.T) {
 	if ev.Channel != "#testing" || !ev.SenderMe || ev.Sender.Nick != "Meretrix" ||
 		!strings.HasPrefix(ev.Msg, "pong hi") {
 		t.Fatalf("IRC_SENT = %+v", ev)
+	}
+}
+
+// rawAndMembership exercises the SendRaw + InChannel module API.
+type rawProbe struct {
+	ctx     *module.Context
+	inTest  bool
+	inOther bool
+}
+
+func (m *rawProbe) Name() string { return "rawprobe" }
+func (m *rawProbe) Load(ctx *module.Context) error {
+	m.ctx = ctx
+	return ctx.Bus.RegisterHook("rawprobe", "IRC_PRIVMSG", func(ev *bus.Event) (bus.Handled, any) {
+		if ev.Msg == "!probe" {
+			m.inTest = ctx.InChannel("#testing")
+			m.inOther = ctx.InChannel("#nope")
+			ctx.SendRaw("GLINE *@evil.example 1h :spam")
+		}
+		return bus.None, nil
+	})
+}
+func (m *rawProbe) Unload() error { return nil }
+
+func TestCoreSendRawAndInChannel(t *testing.T) {
+	p := &rawProbe{}
+	h := newHarness(t, p)
+	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
+	h.send(":BenV!benv@host PRIVMSG #testing :!probe")
+	got := h.expect("GLINE")
+	if got != "GLINE *@evil.example 1h :spam" {
+		t.Fatalf("raw line = %q", got)
+	}
+	if !p.inTest {
+		t.Error("InChannel(#testing) = false, want true")
+	}
+	if p.inOther {
+		t.Error("InChannel(#nope) = true, want false")
+	}
+}
+
+// channel messages to a channel the bot is not in are dropped (not
+// queued into the flood budget on doomed ERR_CANNOTSENDTOCHAN);
+// queries to nicks and messages to joined channels still go out.
+func TestCoreDropsMessagesToUnjoinedChannels(t *testing.T) {
+	h := newHarness(t, &echoModule{})
+	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
+
+	// reply into a channel we ARE in: goes out
+	h.send(":BenV!benv@host PRIVMSG #testing :!ping a")
+	if got := h.expect("PRIVMSG #testing :"); got != "PRIVMSG #testing :pong a" {
+		t.Fatalf("joined-channel reply = %q", got)
+	}
+	// a query (reply target is the nick) goes out even though it is not a channel
+	h.send(":BenV!benv@host PRIVMSG Meretrix :!ping b")
+	if got := h.expect("PRIVMSG BenV :"); got != "PRIVMSG BenV :pong b" {
+		t.Fatalf("query reply = %q", got)
+	}
+}
+
+// broadcaster is an rss-like module: on !cast it fires a message at an
+// un-joined channel and then one at a joined channel. Only the second
+// must reach the wire.
+type broadcaster struct{ ctx *module.Context }
+
+func (m *broadcaster) Name() string { return "broadcaster" }
+func (m *broadcaster) Load(ctx *module.Context) error {
+	m.ctx = ctx
+	return ctx.Bus.RegisterHook("broadcaster", "IRC_PRIVMSG", func(ev *bus.Event) (bus.Handled, any) {
+		if ev.Msg == "!cast" {
+			ctx.Privmsg("#notjoined", "into the void")
+			ctx.Privmsg("#testing", "this one goes")
+		}
+		return bus.None, nil
+	})
+}
+func (m *broadcaster) Unload() error { return nil }
+
+func TestCorePrivmsgDropUnjoined(t *testing.T) {
+	h := newHarness(t, &broadcaster{})
+	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
+	h.send(":BenV!benv@host PRIVMSG #testing :!cast")
+	if got := h.expect("PRIVMSG #"); got != "PRIVMSG #testing :this one goes" {
+		t.Fatalf("first channel wire line = %q, want only the joined-channel message", got)
 	}
 }

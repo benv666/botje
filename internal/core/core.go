@@ -83,6 +83,18 @@ var quitMsgs = []string{
 
 var newlineRe = regexp.MustCompile(`\n\s*`)
 
+// isChannel reports whether an IRC target names a channel (RFC prefixes).
+func isChannel(target string) bool {
+	if target == "" {
+		return false
+	}
+	switch target[0] {
+	case '#', '&', '+', '!':
+		return true
+	}
+	return false
+}
+
 type core struct {
 	cfg   Config
 	work  chan func()
@@ -169,7 +181,9 @@ func Run(ctx context.Context, cfg Config) error {
 	mctx := &module.Context{
 		Bus: c.bus, Cmd: c.cmds, Pager: c.pager, Conf: c.conf,
 		Store: cfg.Store, Sched: c.sch, Fetch: fetcher,
-		Privmsg: c.privmsg,
+		Privmsg:   c.privmsg,
+		SendRaw:   c.sendRaw,
+		InChannel: c.inChannel,
 	}
 	for _, m := range cfg.Modules {
 		if err := m.Load(mctx); err != nil {
@@ -484,6 +498,15 @@ func (c *core) privmsg(receiver, msg string) {
 	if receiver == "" {
 		return
 	}
+	// drop channel messages to channels we are not in: the ircd would
+	// reject them with ERR_CANNOTSENDTOCHAN, but only after they burn
+	// the shared 1 msg/s flood budget and delay real replies (RSS and
+	// ticker broadcast to their target channels whether we joined or
+	// not). Queries to nicks are unaffected.
+	if isChannel(receiver) && c.session != nil && !c.session.InChannel(receiver) {
+		slog.Debug("core: dropping message to un-joined channel", "channel", receiver)
+		return
+	}
 	for _, part := range newlineRe.Split(msg, -1) {
 		for _, line := range format.SplitMessage("PRIVMSG "+receiver+" :", part) {
 			c.conn.Write(line)
@@ -500,6 +523,22 @@ func (c *core) privmsg(receiver, msg string) {
 			Channel: receiver, Msg: part, Extra: map[string]any{},
 		})
 	}
+}
+
+// sendRaw queues a raw IRC line at high priority (the module SendRaw).
+// No-op while disconnected: a spam-wave kickban that misses is better
+// than a panic, and the guard re-evaluates on the next event.
+func (c *core) sendRaw(line string) {
+	if c.conn == nil {
+		return
+	}
+	c.conn.WriteHigh(line)
+}
+
+// inChannel reports whether the bot is in a channel (the module
+// InChannel). False while disconnected.
+func (c *core) inChannel(channel string) bool {
+	return c.session != nil && c.session.InChannel(channel)
 }
 
 // shutdown lets modules say goodbye and, unless running under a keeper,

@@ -28,6 +28,14 @@ type Context struct {
 	// Privmsg sends directly, bypassing the pager (the Perl
 	// cmd_privmsg): newline-split, wrapped, flood-queued, colorized.
 	Privmsg func(channel, msg string)
+	// SendRaw queues a raw IRC line at high priority, ahead of the
+	// flood queue. For oper commands (KICK, MODE +b, GLINE) that must
+	// not sit behind chatter during a spam wave. No colorize/wrap: the
+	// caller writes a complete, correct IRC command. No-op while
+	// disconnected.
+	SendRaw func(line string)
+	// InChannel reports whether the bot is currently in a channel.
+	InChannel func(channel string) bool
 }
 
 // Module is one feature module. Name doubles as the storage namespace
