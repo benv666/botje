@@ -139,7 +139,7 @@ live.
 |--------|----------|
 | karma | `!<item>++` / `!<item>--` (optional `# reason`), `!<item>?`, `!wku <item>`, `!wkd <item>` |
 | ego | `!ego <nick>`, auto-report every 200 self-references |
-| guard | spam gatekeeper, stage 1: telnet `guard on\|off\|status`; learns resident user@hosts while off, freezes the set and logs non-resident joins while on. Enforcement is the next stage |
+| guard | spam gatekeeper: telnet `guard on\|off\|status`. Learns resident user@hosts while off; while on, freezes the trust set and enforces against non-residents (cross-channel duplicate lines, mass-join, line rate) with an oper kickban + timed GLINE. Newcomers clear themselves with `/msg <bot> auth <password>` (`conf guard_auth_password`). Thresholds are `conf guard_*` (dup_channels, join_channels/window, line_rate/window, gline_seconds) |
 | lastseen | `!last <nick>` |
 | markov | `!talk [seed]`, any unknown `!command`, `talk` in query; learns all channel chatter; idle talker via `markov_idle_talk*` settings |
 | pacman | messages starting with 2+ dots (exactly 2: 70% ignored) |

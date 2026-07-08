@@ -40,7 +40,9 @@ type Module struct {
 	ctx       *module.Context
 	residents map[string]map[string]int64 // server -> user@host -> last seen unix
 	dirty     bool
-	strangers int // non-resident joins seen while enabled, since load
+	strangers int                 // non-resident joins seen while enabled, since load
+	actions   int                 // enforcement actions taken since load
+	suspects  map[string]*suspect // mask -> enforcement state, while enabled
 	flushTag  sched.Tag
 	flushSet  bool
 }
@@ -54,13 +56,16 @@ var guardRe = regexp.MustCompile(`^(?i)guard(?:\s+(on|off|status))?\s*$`)
 func (m *Module) Load(ctx *module.Context) error {
 	m.ctx = ctx
 	m.residents = make(map[string]map[string]int64)
+	m.suspects = make(map[string]*suspect)
 	m.strangers = 0
+	m.actions = 0
 	m.dirty = false
 
 	// the toggle lives in conf so it persists across restarts (core
 	// stores runtime conf changes); days control resident aging
 	ctx.Conf.CreateBool("guard_enabled", false)
 	ctx.Conf.CreateInt("guard_resident_days", 90)
+	m.enforceSettings()
 
 	if _, err := ctx.Store.Get(m.Name(), "residents", &m.residents); err != nil {
 		return fmt.Errorf("guard: load residents: %w", err)
@@ -134,6 +139,12 @@ func (m *Module) record(server, mask string) {
 }
 
 func (m *Module) onSeen(ev *bus.Event) (bus.Handled, any) {
+	// query to us: the auth escape hatch (before anything else, so a
+	// legit newcomer arriving mid-wave can clear themselves)
+	if ev.Query && m.tryAuth(ev) {
+		return bus.None, nil
+	}
+	m.watchLine(ev, mask(ev))
 	m.record(ev.Server, mask(ev))
 	return bus.None, nil
 }
@@ -141,11 +152,10 @@ func (m *Module) onSeen(ev *bus.Event) (bus.Handled, any) {
 func (m *Module) onJoin(ev *bus.Event) (bus.Handled, any) {
 	mk := mask(ev)
 	if mk != "" && m.enabled() && !m.isResident(ev.Server, mk) {
-		// observability before enforcement exists: this line in the ops
-		// log is what stage 2 will act on
 		m.strangers++
 		slog.Info("guard: non-resident join", "mask", mk, "nick", ev.Sender.Nick,
 			"channel", ev.Channel, "server", ev.Server)
+		m.watchJoin(ev, mk)
 	}
 	m.record(ev.Server, mk)
 	return bus.None, nil
@@ -176,6 +186,7 @@ func (m *Module) onCommand(*bus.Event) (bus.Handled, any) {
 				if err := m.ctx.Conf.Set("guard_enabled", "false"); err != nil {
 					return fmt.Sprintf("{r}Error:{/} %v", err)
 				}
+				m.suspects = make(map[string]*suspect) // forget the wave
 				slog.Info("guard: disabled")
 				return "{g}Guard is off.{/} Back to learning residents.\n" + m.status()
 			default:
@@ -198,8 +209,8 @@ func (m *Module) status() string {
 	if total == 1 {
 		plural = ""
 	}
-	return fmt.Sprintf("Guard: %s. %d resident%s known, %d stranger joins seen while on (since load).",
-		state, total, plural, m.strangers)
+	return fmt.Sprintf("Guard: %s. %d resident%s known, %d stranger joins seen, %d enforced (since load).",
+		state, total, plural, m.strangers, m.actions)
 }
 
 // age drops residents not seen within guard_resident_days.
