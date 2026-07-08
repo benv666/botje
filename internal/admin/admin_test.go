@@ -246,7 +246,8 @@ func TestAuditLog(t *testing.T) {
 	var mu sync.Mutex
 	var logbuf bytes.Buffer
 	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&syncWriter{mu: &mu, w: &logbuf}, nil)))
+	slog.SetDefault(slog.New(slog.NewTextHandler(&syncWriter{mu: &mu, w: &logbuf},
+		&slog.HandlerOptions{Level: slog.LevelDebug})))
 	defer slog.SetDefault(old)
 
 	_, c := newServer(t, Spec{
