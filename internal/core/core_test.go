@@ -662,3 +662,37 @@ func TestCoreMetricsEndpoint(t *testing.T) {
 		t.Errorf("no hook call counter:\n%s", body)
 	}
 }
+
+// multi-line output keeps intentional leading whitespace on every line
+// (ASCII art like pacman) and drops blank lines. The Perl cmd_privmsg
+// stripped continuation-line whitespace, mangling art; fixed to match
+// Perl's own better cmd_eventmsg path.
+type artModule struct{ ctx *module.Context }
+
+func (m *artModule) Name() string { return "art" }
+func (m *artModule) Load(ctx *module.Context) error {
+	m.ctx = ctx
+	return ctx.Bus.RegisterHook("art", "IRC_PRIVMSG", func(ev *bus.Event) (bus.Handled, any) {
+		if ev.Msg == "!art" {
+			ctx.Privmsg(ev.Channel, "   /~~\\\n   ( o <\n\n    \\__/")
+		}
+		return bus.None, nil
+	})
+}
+func (m *artModule) Unload() error { return nil }
+
+func TestCorePreservesArtWhitespace(t *testing.T) {
+	h := newHarness(t, &artModule{})
+	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
+	h.send(":BenV!benv@host PRIVMSG #testing :!art")
+	if got := h.expect(`/~~\`); got != `PRIVMSG #testing :   /~~\` {
+		t.Fatalf("line 1 = %q", got)
+	}
+	if got := h.expect("( o <"); got != "PRIVMSG #testing :   ( o <" {
+		t.Fatalf("line 2 lost its margin = %q", got)
+	}
+	if got := h.expect(`\__/`); got != `PRIVMSG #testing :    \__/` {
+		t.Fatalf("line 3 (after a blank line) = %q", got)
+	}
+}

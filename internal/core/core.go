@@ -87,7 +87,20 @@ var quitMsgs = []string{
 	"I've had it with you guys!",
 }
 
-var newlineRe = regexp.MustCompile(`\n\s*`)
+// splitLines breaks a message into IRC lines on newlines only,
+// dropping blank lines. The Perl cmd_privmsg split on /\n\s*/, which
+// ate the leading whitespace of every continuation line and mangled
+// ASCII art (pacman); this matches Perl's own cmd_eventmsg, which
+// splits on \n and greps out blank lines, preserving indentation.
+func splitLines(msg string) []string {
+	var out []string
+	for line := range strings.SplitSeq(msg, "\n") {
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
 
 // isChannel reports whether an IRC target names a channel (RFC prefixes).
 func isChannel(target string) bool {
@@ -562,7 +575,7 @@ func (c *core) privmsg(receiver, msg string) {
 		slog.Debug("core: dropping message to un-joined channel", "channel", receiver)
 		return
 	}
-	for _, part := range newlineRe.Split(msg, -1) {
+	for _, part := range splitLines(msg) {
 		for _, line := range format.SplitMessage("PRIVMSG "+receiver+" :", part) {
 			c.conn.Write(line)
 		}
