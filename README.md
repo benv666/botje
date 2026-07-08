@@ -139,6 +139,7 @@ live.
 |--------|----------|
 | karma | `!<item>++` / `!<item>--` (optional `# reason`), `!<item>?`, `!wku <item>`, `!wkd <item>` |
 | ego | `!ego <nick>`, auto-report every 200 self-references |
+| guard | spam gatekeeper, stage 1: telnet `guard on\|off\|status`; learns resident user@hosts while off, freezes the set and logs non-resident joins while on. Enforcement is the next stage |
 | lastseen | `!last <nick>` |
 | markov | `!talk [seed]`, any unknown `!command`, `talk` in query; learns all channel chatter; idle talker via `markov_idle_talk*` settings |
 | pacman | messages starting with 2+ dots (exactly 2: 70% ignored) |
