@@ -19,6 +19,10 @@ type ConnConfig struct {
 	OnLine       func(line string)        // complete inbound lines, reader goroutine
 	OnDisconnect func(err error)          // fired once when the read side dies
 	Dial         func() (net.Conn, error) // test override; nil dials Addr
+	// CertFile/KeyFile: optional TLS client certificate (oper certfp);
+	// in the keeper/core split the KEEPER presents it, this is for
+	// standalone mode
+	CertFile, KeyFile string
 }
 
 // Conn is one live IRC transport: framing in, flood-queued writes out
@@ -40,9 +44,13 @@ type Conn struct {
 func Connect(cfg ConnConfig) (*Conn, error) {
 	dial := cfg.Dial
 	if dial == nil {
+		tlsConf, err := ClientTLS(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return nil, err
+		}
 		dial = func() (net.Conn, error) {
 			if cfg.TLS {
-				return tls.Dial("tcp", cfg.Addr, nil)
+				return tls.Dial("tcp", cfg.Addr, tlsConf)
 			}
 			return net.Dial("tcp", cfg.Addr)
 		}

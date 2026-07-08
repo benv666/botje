@@ -31,8 +31,11 @@ const maxBuffer = 4 << 20 // 4 MiB
 type Config struct {
 	Addr   string // IRC host:port
 	TLS    bool
-	Socket string                   // unix socket path for the core
-	Dial   func() (net.Conn, error) // test hook; nil dials Addr
+	Socket string // unix socket path for the core
+	// CertFile/KeyFile: TLS client certificate, presented so the ircd
+	// can identify the bot by fingerprint (oper certfp autologin)
+	CertFile, KeyFile string
+	Dial              func() (net.Conn, error) // test hook; nil dials Addr
 }
 
 // Run connects to IRC, serves the core socket, and relays until ctx is
@@ -53,9 +56,13 @@ type keeper struct {
 // cancelled.
 func Run(ctx context.Context, cfg Config) error {
 	if cfg.Dial == nil {
+		tlsConf, err := irc.ClientTLS(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return fmt.Errorf("keeper: %w", err)
+		}
 		cfg.Dial = func() (net.Conn, error) {
 			if cfg.TLS {
-				return tls.Dial("tcp", cfg.Addr, nil)
+				return tls.Dial("tcp", cfg.Addr, tlsConf)
 			}
 			return net.Dial("tcp", cfg.Addr)
 		}

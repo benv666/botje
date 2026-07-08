@@ -42,8 +42,14 @@ services:
       BOTJE_IRC_ADDR: ${BOTJE_IRC_ADDR:?set BOTJE_IRC_ADDR in .env}
       BOTJE_IRC_TLS: ${BOTJE_IRC_TLS:-true}
       BOTJE_SOCKET: /run/keeper/keeper.sock
+      # optional TLS client cert: the ircd identifies the bot by its
+      # fingerprint (oper certfp autologin). Generate under
+      # mounts/certs, see .env.example.
+      BOTJE_TLS_CERT: ${BOTJE_TLS_CERT:-}
+      BOTJE_TLS_KEY: ${BOTJE_TLS_KEY:-}
     volumes:
       - keepersock:/run/keeper
+      - ./mounts/certs:/certs:ro
     extra_hosts:
       # optional FQDN pin, e.g. "irc.example.com:10.0.0.2"; the default
       # is a no-op mapping
