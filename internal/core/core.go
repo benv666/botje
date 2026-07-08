@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"go-botje/internal/irc"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/irc/pager"
+	"go-botje/internal/metrics"
 	"go-botje/internal/module"
 	"go-botje/internal/sched"
 	"go-botje/internal/storage"
@@ -55,6 +57,10 @@ type Config struct {
 	// under a keeper: a core restart must leave the IRC session up, so
 	// the keeper (not the core) owns the real goodbye.
 	SkipGoodbye bool
+
+	// Metrics, when set, exposes a Prometheus endpoint on MetricsAddr.
+	Metrics     *metrics.Registry
+	MetricsAddr string
 }
 
 // ircEvents is every event name the session can emit.
@@ -196,6 +202,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := c.startAdmin(ctx); err != nil {
 		return err
 	}
+	c.startMetrics(ctx)
 	c.connect()
 	c.loop(ctx)
 	c.shutdown()
@@ -224,6 +231,9 @@ func (c *core) startAdmin(ctx context.Context) error {
 			<-done
 		},
 		Commands: c.adminCommands,
+	}
+	if c.cfg.Metrics != nil {
+		srv.Metric = c.cfg.Metrics.IncCounter
 	}
 	slog.Info("core: admin port up", "addr", ln.Addr())
 	go srv.Serve(ln)
@@ -399,6 +409,48 @@ func (c *core) builtinSpecs() []admin.Spec {
 	}
 }
 
+// startMetrics registers the collectors and serves the Prometheus
+// endpoint. The collector reads bus callstats and connection state at
+// scrape time; it runs on the scraping goroutine, and bus.Stats takes
+// its own lock, so no dispatcher round-trip is needed.
+func (c *core) startMetrics(ctx context.Context) {
+	reg := c.cfg.Metrics
+	if reg == nil {
+		return
+	}
+	reg.AddCollector(func() {
+		for id, cs := range c.bus.Stats() {
+			labels := map[string]string{"module": id.Module, "event": id.Event}
+			reg.SetCounter("botje_hook_calls_total", labels, float64(cs.Count))
+			reg.SetCounter("botje_hook_duration_seconds_sum", labels, time.Duration(cs.Total).Seconds())
+		}
+		connected := 0.0
+		if c.conn != nil {
+			connected = 1
+		}
+		reg.SetGauge("botje_connected", nil, connected)
+		reg.SetGauge("botje_modules", nil, float64(len(c.bus.Modules())))
+	})
+	if c.cfg.MetricsAddr == "" {
+		return
+	}
+	ln, err := net.Listen("tcp", c.cfg.MetricsAddr)
+	if err != nil {
+		slog.Error("core: metrics listen", "addr", c.cfg.MetricsAddr, "err", err)
+		return
+	}
+	slog.Info("core: metrics endpoint up", "addr", ln.Addr())
+	srv := &http.Server{Handler: metricsMux(reg)}
+	go srv.Serve(ln)
+	go func() { <-ctx.Done(); srv.Close() }()
+}
+
+func metricsMux(reg *metrics.Registry) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", reg.Handler())
+	return mux
+}
+
 // loop is the dispatcher: everything that touches modules runs here.
 func (c *core) loop(ctx context.Context) {
 	for {
@@ -477,6 +529,9 @@ func (c *core) disconnected(err error) {
 }
 
 func (c *core) scheduleReconnect() {
+	if c.cfg.Metrics != nil {
+		c.cfg.Metrics.IncCounter("botje_reconnects_total", nil)
+	}
 	delay := c.backoff.Next(time.Now())
 	slog.Info("core: scheduling reconnect", "delay", delay)
 	c.sch.After(delay, c.connect)

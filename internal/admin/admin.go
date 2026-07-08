@@ -45,6 +45,16 @@ type Server struct {
 	Auth     *auth.Auth
 	Exec     func(fn func())
 	Commands func() []Spec
+	// Metric, when set, counts admin events (login ok/failed). Kept as
+	// a plain callback so this package does not import metrics.
+	Metric func(name string, labels map[string]string)
+}
+
+// metric bumps a counter if a Metric sink is configured.
+func (s *Server) metric(name, labelKey, labelVal string) {
+	if s.Metric != nil {
+		s.Metric(name, map[string]string{labelKey: labelVal})
+	}
 }
 
 // login states, Perl values kept for familiarity
@@ -175,6 +185,7 @@ func (se *session) checkLogin(password string) bool {
 	res := se.srv.Auth.Check(se.username, password)
 	if res != auth.Valid && res != auth.Super {
 		se.tries++
+		se.srv.metric("botje_admin_logins_total", "result", "failed")
 		slog.Warn("admin: login failed", "user", se.username, "addr", se.remote, "attempt", se.tries)
 		if se.tries >= maxTries {
 			slog.Warn("admin: disconnected after failed logins", "addr", se.remote)
@@ -187,6 +198,7 @@ func (se *session) checkLogin(password string) bool {
 		return false
 	}
 	se.su = res == auth.Super
+	se.srv.metric("botje_admin_logins_total", "result", "ok")
 	slog.Info("admin: login ok", "user", se.username, "su", se.su, "addr", se.remote)
 	se.state = stateIn
 	se.write("\nWelcome to botje! Enter '{y}?{/}' or '{y}help{/}' for help.\n\n")
