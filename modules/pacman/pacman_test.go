@@ -95,3 +95,18 @@ func TestOwnMessageIgnored(t *testing.T) {
 		t.Fatalf("replied to own message: %q", f.sent)
 	}
 }
+
+func TestChompingVariant(t *testing.T) {
+	f := newFixture(t, 0.2) // int(0.2*6)=1: the added chomping pac-man
+	f.msg("...")
+	if len(f.sent) != 1 {
+		t.Fatalf("sent = %q", f.sent)
+	}
+	if !strings.Contains(f.sent[0], "/o <") || !strings.Contains(f.sent[0], "Verty") {
+		t.Fatalf("art = %q, want chomping variant with nick", f.sent[0])
+	}
+	// no more than 3 art lines
+	if n := strings.Count(strings.TrimRight(f.sent[0], "\n"), "\n") + 1; n > 3 {
+		t.Fatalf("variant has %d lines, want <= 3", n)
+	}
+}
