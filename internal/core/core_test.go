@@ -5,12 +5,14 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"go-botje/internal/auth"
+	"go-botje/internal/bus"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
@@ -456,4 +458,42 @@ func TestCoreAdminJoinPart(t *testing.T) {
 	// part of an unknown channel errors
 	tc.Write([]byte("part #nope\r\n"))
 	expectTelnet("Error")
+}
+
+// sentCapture records IRC_SENT events (what the logger module will hook).
+type sentCapture struct {
+	mu   sync.Mutex
+	seen []bus.Event
+}
+
+func (m *sentCapture) Name() string { return "sentcap" }
+func (m *sentCapture) Load(ctx *module.Context) error {
+	return ctx.Bus.RegisterHook("sentcap", "IRC_SENT", func(ev *bus.Event) (bus.Handled, any) {
+		m.mu.Lock()
+		m.seen = append(m.seen, *ev)
+		m.mu.Unlock()
+		return bus.None, nil
+	})
+}
+func (m *sentCapture) Unload() error { return nil }
+
+// every outbound privmsg emits IRC_SENT so the logger can record the
+// bot's own lines; multi-line replies emit one event per line.
+func TestCoreEmitsIRCSent(t *testing.T) {
+	cap := &sentCapture{}
+	h := newHarness(t, &echoModule{}, cap)
+	h.expect("JOIN #testing")
+	h.send(":BenV!benv@host PRIVMSG #testing :!ping hi\nthere")
+	h.expect("PRIVMSG #testing :")
+
+	cap.mu.Lock()
+	defer cap.mu.Unlock()
+	if len(cap.seen) == 0 {
+		t.Fatal("no IRC_SENT events")
+	}
+	ev := cap.seen[0]
+	if ev.Channel != "#testing" || !ev.SenderMe || ev.Sender.Nick != "Meretrix" ||
+		!strings.HasPrefix(ev.Msg, "pong hi") {
+		t.Fatalf("IRC_SENT = %+v", ev)
+	}
 }

@@ -25,10 +25,12 @@ import (
 	"go-botje/internal/keeper"
 	"go-botje/internal/module"
 	"go-botje/internal/storage"
+	"go-botje/internal/teelog"
 	"go-botje/modules/ego"
 	"go-botje/modules/karma"
 	"go-botje/modules/lastseen"
 	"go-botje/modules/llm"
+	"go-botje/modules/logger"
 	"go-botje/modules/markov"
 	"go-botje/modules/pacman"
 	"go-botje/modules/pizza"
@@ -220,7 +222,20 @@ type coreOpts struct {
 }
 
 func runCore(o coreOpts) int {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	handler := slog.Handler(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	// BOTJE_LOG_DIR: tee everything (admin audit, conf changes,
+	// reconnects, module errors) into an ops.log next to the channel
+	// logs, on top of stderr/docker logs
+	if dir := os.Getenv("BOTJE_LOG_DIR"); dir != "" {
+		h, closeOps, err := teelog.OpsLog(handler, dir)
+		if err != nil {
+			slog.Error("ops log unavailable, continuing on stderr only", "dir", dir, "err", err)
+		} else {
+			handler = h
+			defer closeOps()
+		}
+	}
+	slog.SetDefault(slog.New(handler))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -294,6 +309,7 @@ func modules() []module.Module {
 		karma.New(),
 		lastseen.New(),
 		llm.New(),
+		logger.New(),
 		markov.New(),
 		pacman.New(),
 		pizza.New(),

@@ -67,3 +67,20 @@ func TestWrapTextEmpty(t *testing.T) {
 		t.Errorf("WrapText(\"\") = %q, want empty", got)
 	}
 }
+
+func TestStrip(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"plain text", "plain text"},
+		{"{y}BTC{/} up {g}5%{/}", "BTC up 5%"},
+		{"unknown {q} tag", "unknown  tag"},
+		{"mirc \x0304red\x03 and \x0303,01green\x0f done", "mirc red and green done"},
+		{"bold\x02 rev\x16 ital\x1d under\x1f", "bold rev ital under"},
+		{"ansi \x1b[31mred\x1b[0m", "ansi red"},
+		{"{B}both{/} \x0312worlds\x0f", "both worlds"},
+	}
+	for _, c := range cases {
+		if got := Strip(c.in); got != c.want {
+			t.Errorf("Strip(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

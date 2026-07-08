@@ -46,6 +46,16 @@ func ToIRC(s string) string {
 	return ansiToMIRC(ToANSI(s))
 }
 
+// mIRC color/formatting control codes plus stray ANSI escapes.
+var controlRe = regexp.MustCompile(`\x03(?:[0-9]{1,2}(?:,[0-9]{1,2})?)?|[\x02\x0f\x16\x1d\x1f]|\x1b\[[0-9;]*m`)
+
+// Strip removes all formatting: {x} tags, mIRC control codes, and ANSI
+// escapes. For plain-text sinks like log files, where both bot output
+// (tagged) and user input (raw mIRC codes) must come out readable.
+func Strip(s string) string {
+	return controlRe.ReplaceAllString(tagRe.ReplaceAllString(s, ""), "")
+}
+
 // ANSI SGR code -> mIRC code, the Perl IRC.pm %colorCodes table. Bold
 // is a state, not a code: it selects the bright variant of following
 // colors (mIRC \x02 is never emitted, same as Perl).
