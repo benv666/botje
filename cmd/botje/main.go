@@ -27,6 +27,7 @@ import (
 	"go-botje/internal/storage"
 	"go-botje/internal/teelog"
 	"go-botje/modules/ego"
+	"go-botje/modules/guard"
 	"go-botje/modules/karma"
 	"go-botje/modules/lastseen"
 	"go-botje/modules/llm"
@@ -314,6 +315,7 @@ func openStore(ctx context.Context) (storage.Store, error) {
 func modules() []module.Module {
 	return []module.Module{
 		ego.New(),
+		guard.New(),
 		karma.New(),
 		lastseen.New(),
 		llm.New(),
