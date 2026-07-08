@@ -8,6 +8,7 @@ package admin
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"regexp"
 	"strings"
@@ -56,6 +57,7 @@ const (
 type session struct {
 	srv      *Server
 	conn     net.Conn
+	remote   string // for the audit log
 	state    int
 	username string
 	su       bool
@@ -75,7 +77,9 @@ func (s *Server) Serve(ln net.Listener) error {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	sess := &session{srv: s, conn: conn, state: stateUser}
+	sess := &session{srv: s, conn: conn, state: stateUser,
+		remote: conn.RemoteAddr().String()}
+	slog.Info("admin: connection", "addr", sess.remote)
 	sess.write(doEcho)
 	sess.write("login: ")
 
@@ -168,7 +172,9 @@ func (se *session) checkLogin(password string) bool {
 	res := se.srv.Auth.Check(se.username, password)
 	if res != auth.Valid && res != auth.Super {
 		se.tries++
+		slog.Warn("admin: login failed", "user", se.username, "addr", se.remote, "attempt", se.tries)
 		if se.tries >= maxTries {
+			slog.Warn("admin: disconnected after failed logins", "addr", se.remote)
 			se.write("H-h-h-h-HACKER!!!\n")
 			return true
 		}
@@ -178,6 +184,7 @@ func (se *session) checkLogin(password string) bool {
 		return false
 	}
 	se.su = res == auth.Super
+	slog.Info("admin: login ok", "user", se.username, "su", se.su, "addr", se.remote)
 	se.state = stateIn
 	se.write("\nWelcome to botje! Enter '{y}?{/}' or '{y}help{/}' for help.\n\n")
 	se.prompt()
@@ -208,6 +215,9 @@ func (se *session) dispatch(line string) {
 			continue
 		}
 		args := strings.TrimLeft(line[loc[1]:], " \t")
+		// audit by spec name only: the raw line may contain passwords
+		// (passwd, adduser)
+		slog.Info("admin: command", "user", se.username, "cmd", spec.Name, "addr", se.remote)
 		out := se.run(spec, args, line)
 		if out != "" && !strings.HasSuffix(out, "\n") {
 			out += "\n"

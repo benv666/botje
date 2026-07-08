@@ -58,6 +58,7 @@ type Config struct {
 var ircEvents = []string{
 	"IRC_ERROR", "IRC_PRIVMSG", "IRC_NOTICE", "IRC_MODE", "IRC_JOIN",
 	"IRC_KICK", "IRC_PART", "IRC_INVITE", "IRC_QUIT", "IRC_TOPIC",
+	"IRC_SENT", // outbound privmsg, one event per line; logger food
 	"config_changed", "QUIT", "COMMAND",
 }
 
@@ -482,6 +483,17 @@ func (c *core) privmsg(receiver, msg string) {
 		for _, line := range format.SplitMessage("PRIVMSG "+receiver+" :", part) {
 			c.conn.Write(line)
 		}
+		// IRC_SENT lets the logger see the bot's own lines. A separate
+		// event, NOT an IRC_PRIVMSG with SenderMe: modules keep the perl
+		// behavior of never seeing bot output (markov must not learn its
+		// own lines). Nested Submit is fine, chain tracking is per
+		// (module,event); an IRC_SENT hook calling privmsg again is
+		// refused by that same tracking rather than recursing.
+		c.bus.Submit(&bus.Event{
+			Name: "IRC_SENT", BotNick: c.cfg.Nick, Server: c.cfg.Network,
+			Sender: bus.Sender{Nick: c.cfg.Nick}, SenderMe: true,
+			Channel: receiver, Msg: part, Extra: map[string]any{},
+		})
 	}
 }
 

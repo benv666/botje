@@ -2,9 +2,13 @@ package admin
 
 import (
 	"bufio"
+	"bytes"
+	"io"
+	"log/slog"
 	"net"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -233,4 +237,60 @@ func TestPromptShowsUser(t *testing.T) {
 	if !strings.Contains(out, "benv") || !strings.Contains(out, "Botje") {
 		t.Fatalf("prompt = %q, want user@Botje>", out)
 	}
+}
+
+// the admin port must leave an audit trail: connections, login
+// success/failure with source address, and executed commands (by spec
+// name only, never the raw line - it may contain passwords).
+func TestAuditLog(t *testing.T) {
+	var mu sync.Mutex
+	var logbuf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&syncWriter{mu: &mu, w: &logbuf}, nil)))
+	defer slog.SetDefault(old)
+
+	_, c := newServer(t, Spec{
+		Name:  "noop",
+		Match: regexp.MustCompile(`^noop`),
+		Run:   func(_, _ string) string { return "ok" },
+	})
+	c.readUntil("login: ")
+	c.send("benv")
+	c.readUntil("password: ")
+	c.send("wrong")
+	c.readUntil("login: ")
+	c.send("benv")
+	c.readUntil("password: ")
+	c.send("geheim")
+	c.readUntil(promptMark)
+	c.send("noop secret-argument")
+	c.readUntil(promptMark)
+
+	mu.Lock()
+	logs := logbuf.String()
+	mu.Unlock()
+	for _, want := range []string{
+		"admin: connection", "addr=",
+		"admin: login failed", "user=benv",
+		"admin: login ok",
+		"admin: command", "cmd=noop",
+	} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("audit log missing %q in:\n%s", want, logs)
+		}
+	}
+	if strings.Contains(logs, "secret-argument") || strings.Contains(logs, "geheim") {
+		t.Errorf("audit log leaks command arguments or passwords:\n%s", logs)
+	}
+}
+
+type syncWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
 }
