@@ -103,9 +103,11 @@ func TestWeerDefaultsToHome(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("sent = %q", got)
 	}
-	// 24.6°C is warm = orange, and every color must be reset: an
-	// unclosed tag paints the rest of the line navy (live complaint)
-	for _, want := range []string{"{B}{b}Hauwert{/}", "Berkhout", "{y}24.6°C{/}", "NNO 3Bft", "vrijwel onbewolkt"} {
+	// every variable gets a relevant color (24.6 warm orange, NNO cold
+	// cyan, 3Bft calm green, 39% dry orange), and every color must be
+	// reset: an unclosed tag paints the rest of the line navy (live
+	// complaint, twice)
+	for _, want := range []string{"{B}{b}Hauwert{/}", "Berkhout", "{y}24.6°C{/}", "wind {c}NNO{/} {g}3Bft{/}", "{y}39%{/} vochtig", "vrijwel onbewolkt"} {
 		if !strings.Contains(got[0], want) {
 			t.Fatalf("weer output missing %q: %q", want, got[0])
 		}
@@ -127,6 +129,28 @@ func TestTempColor(t *testing.T) {
 	}{{-5, "{C}"}, {5, "{c}"}, {15, "{g}"}, {20, "{y}"}, {30, "{R}"}} {
 		if got := tempColor(tc.temp); got != tc.want {
 			t.Fatalf("tempColor(%v) = %q, want %q", tc.temp, got, tc.want)
+		}
+	}
+}
+
+func TestValueColors(t *testing.T) {
+	for _, tc := range []struct{ got, want string }{
+		{windDir("NNO"), "{c}NNO{/}"}, // noord = koud
+		{windDir("zw"), "{R}ZW{/}"},   // zuid = warm
+		{windDir("ONO"), "{C}ONO{/}"}, // oost = droog continentaal
+		{windDir("W"), "{g}W{/}"},     // west = zacht zeeklimaat
+		{windBft(2), "{g}2Bft{/}"},    // kalm
+		{windBft(5), "{y}5Bft{/}"},    // stevig
+		{windBft(9), "{R}9Bft{/}"},    // storm
+		{humidity(30), "{y}30%{/}"},   // droog
+		{humidity(55), "{g}55%{/}"},   // prima
+		{humidity(90), "{c}90%{/}"},   // klam
+		{rainChance(10), "{g}10%{/}"}, // droog
+		{rainChance(45), "{y}45%{/}"}, // misschien
+		{rainChance(80), "{c}80%{/}"}, // jas mee
+	} {
+		if tc.got != tc.want {
+			t.Fatalf("colored value = %q, want %q", tc.got, tc.want)
 		}
 	}
 }

@@ -358,6 +358,67 @@ func colorTempStr(s string) string {
 	return tempColor(v) + s + "{/}"
 }
 
+// windDir colors a Dutch compass direction by what it brings: noord
+// cold blue, zuid warm red, oost dry continental cyan, west mild sea
+// green. The first letter is the dominant component.
+func windDir(dir string) string {
+	if dir == "" {
+		return dir
+	}
+	tag := ""
+	switch dir[0] {
+	case 'N', 'n':
+		tag = "{c}"
+	case 'Z', 'z', 'S', 's':
+		tag = "{R}"
+	case 'O', 'o', 'E', 'e':
+		tag = "{C}"
+	case 'W', 'w':
+		tag = "{g}"
+	default:
+		return dir
+	}
+	return tag + strings.ToUpper(dir) + "{/}"
+}
+
+// windBft colors wind force: calm green, stiff orange, storm red.
+func windBft(bft float64) string {
+	tag := "{g}"
+	switch {
+	case bft >= 7:
+		tag = "{R}"
+	case bft >= 4:
+		tag = "{y}"
+	}
+	return fmt.Sprintf("%s%.0fBft{/}", tag, bft)
+}
+
+// humidity colors relative humidity: dry orange, comfortable green,
+// clammy cyan.
+func humidity(h float64) string {
+	tag := "{g}"
+	switch {
+	case h < 40:
+		tag = "{y}"
+	case h > 75:
+		tag = "{c}"
+	}
+	return fmt.Sprintf("%s%.0f%%{/}", tag, h)
+}
+
+// rainChance colors the odds: dry green, maybe orange, bring a coat
+// cyan.
+func rainChance(pct float64) string {
+	tag := "{g}"
+	switch {
+	case pct > 60:
+		tag = "{c}"
+	case pct > 30:
+		tag = "{y}"
+	}
+	return fmt.Sprintf("%s%.0f%%{/}", tag, pct)
+}
+
 func weerLine(place string, st *station, km int) string {
 	name := strings.TrimPrefix(st.Name, "Meetstation ")
 	var b strings.Builder
@@ -372,10 +433,10 @@ func weerLine(place string, st *station, km int) string {
 		fmt.Fprintf(&b, ", %s", strings.ToLower(st.Description[:1])+st.Description[1:])
 	}
 	if st.WindBft != nil {
-		fmt.Fprintf(&b, ", wind %s %.0fBft", st.WindDir, *st.WindBft)
+		fmt.Fprintf(&b, ", wind %s %s", windDir(st.WindDir), windBft(*st.WindBft))
 	}
 	if st.Humidity != nil {
-		fmt.Fprintf(&b, ", %.0f%% vochtig", *st.Humidity)
+		fmt.Fprintf(&b, ", %s vochtig", humidity(*st.Humidity))
 	}
 	if st.RainLastHr != nil && *st.RainLastHr > 0 {
 		fmt.Fprintf(&b, ", {c}%.1fmm{/} regen in het laatste uur", *st.RainLastHr)
@@ -483,9 +544,9 @@ func (m *Module) report() {
 		}
 		day := f.Forecast.FiveDay[0]
 		var b strings.Builder
-		fmt.Fprintf(&b, "Goedemorgen! Vandaag: %s, %s-%s°C, regenkans %.0f%%, wind %s %.0fBft.",
-			day.Description, colorTempStr(day.MinTemp), colorTempStr(day.MaxTemp), day.RainChance,
-			strings.ToUpper(day.WindDir), day.WindBft)
+		fmt.Fprintf(&b, "Goedemorgen! Vandaag: %s, %s-%s°C, regenkans %s, wind %s %s.",
+			day.Description, colorTempStr(day.MinTemp), colorTempStr(day.MaxTemp),
+			rainChance(day.RainChance), windDir(day.WindDir), windBft(day.WindBft))
 		if f.Forecast.Report.Title != "" {
 			fmt.Fprintf(&b, " %s.", strings.TrimSuffix(f.Forecast.Report.Title, "."))
 		}
