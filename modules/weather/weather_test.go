@@ -377,6 +377,29 @@ func TestGeocodeCached(t *testing.T) {
 	}
 }
 
+// A geo cached by the pre-country version has no Country/Area, which
+// made every cached place look foreign (Hauwert reported from
+// open-meteo instead of its station, live 2026-07-13). Stale entries
+// must be re-geocoded.
+func TestStaleGeoCacheRefreshed(t *testing.T) {
+	store := storage.NewMemory()
+	if err := store.Put("weather", "geo hauwert", map[string]any{
+		"name": "Hauwert", "lat": 52.70833, "lon": 5.1, // no country, no area
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t, store)
+	f.msg("BenV", "#testing", "!weer")
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "meetstation Berkhout") {
+		t.Fatalf("stale cache entry not refreshed: %q", got)
+	}
+	var g geo
+	if _, err := store.Get("weather", "geo hauwert", &g); err != nil || g.Country != "NL" {
+		t.Fatalf("stored geo not rewritten: %+v (%v)", g, err)
+	}
+}
+
 func TestWeerUnknownPlace(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.body[geoURL] = geoNiks

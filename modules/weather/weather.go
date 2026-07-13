@@ -191,12 +191,14 @@ func (m *Module) resolve(place string, cb func(g geo, ok bool)) {
 		cb(geo{}, false)
 		return
 	}
-	if g, ok := m.geoCache[key]; ok {
+	// a cached entry without a country predates the abroad/warning
+	// support: re-geocode it instead of treating the place as foreign
+	if g, ok := m.geoCache[key]; ok && g.Country != "" {
 		cb(g, true)
 		return
 	}
 	var g geo
-	if found, err := m.ctx.Store.Get(m.Name(), "geo "+key, &g); err == nil && found {
+	if found, err := m.ctx.Store.Get(m.Name(), "geo "+key, &g); err == nil && found && g.Country != "" {
 		m.geoCache[key] = g
 		cb(g, true)
 		return
