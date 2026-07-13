@@ -341,22 +341,30 @@ func TestJoinChannelsMarksMembership(t *testing.T) {
 func TestBackoff(t *testing.T) {
 	t0 := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	var b Backoff
-	// escalating: 3, 60, 180, 300 with quick successive failures
+	// escalating: 3, 60, 180, 300 with the caller sleeping each returned
+	// delay before the attempt fails again (the real call pattern)
 	now := t0
 	for _, want := range []time.Duration{3 * time.Second, 60 * time.Second, 180 * time.Second, 300 * time.Second} {
 		got := b.Next(now)
 		if got != want {
 			t.Fatalf("Next = %v, want %v", got, want)
 		}
-		now = now.Add(time.Second) // failed again right away
+		now = now.Add(got + time.Second) // slept the delay, attempt failed a second later
 	}
-	// still failing fast: stays at 300 (the perl falls off the list and
-	// stops reconnecting; fixed here)
-	if got := b.Next(now); got != 300*time.Second {
-		t.Fatalf("Next past end = %v, want 300s", got)
+	// still failing: stays at 300 (the perl falls off the list and stops
+	// reconnecting; fixed here). The 300s sleep itself must NOT count as
+	// a quiet period: that cycled the ladder back to 3s live on
+	// 2026-07-13 and kept hammering a connectban'd ircd.
+	for range 3 {
+		got := b.Next(now)
+		if got != 300*time.Second {
+			t.Fatalf("Next past end = %v, want 300s", got)
+		}
+		now = now.Add(got + time.Second)
 	}
-	// after more than 300s of peace the ladder resets
-	now = now.Add(302 * time.Second)
+	// a connection that lived >300s past the attempt is real peace: the
+	// ladder resets
+	now = now.Add(301 * time.Second)
 	if got := b.Next(now); got != 3*time.Second {
 		t.Fatalf("Next after quiet period = %v, want reset to 3s", got)
 	}
