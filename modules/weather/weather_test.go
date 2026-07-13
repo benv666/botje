@@ -10,6 +10,7 @@ import (
 	"go-botje/internal/conf"
 	"go-botje/internal/fetch"
 	"go-botje/internal/irc/cmd"
+	"go-botje/internal/irc/pager"
 	"go-botje/internal/module"
 	"go-botje/internal/sched"
 	"go-botje/internal/storage"
@@ -17,7 +18,36 @@ import (
 
 const geoHauwert = `{"results":[{"name":"Hauwert","latitude":52.70833,"longitude":5.1,"country_code":"NL","admin1":"Noord-Holland"}]}`
 const geoAlkmaar = `{"results":[{"name":"Alkmaar","latitude":52.63,"longitude":4.75,"country_code":"NL","admin1":"Noord-Holland"}]}`
+const geoBarcelona = `{"results":[{"name":"Barcelona","latitude":41.39,"longitude":2.16,"country_code":"ES","admin1":"Catalonia","country":"Spanje"}]}`
 const geoNiks = `{"generationtime_ms":0.1}`
+
+// open-meteo current weather for Barcelona; weather_code 3 = bewolkt
+const meteoJSON = `{"current":{"time":"2026-07-13T17:45","temperature_2m":29.2,"apparent_temperature":32.8,
+ "relative_humidity_2m":66,"wind_speed_10m":2.96,"wind_direction_10m":102,"weather_code":3,"precipitation":0.0}}`
+
+const meteoRainJSON = `{"minutely_15":{"time":["2026-07-13T17:45","2026-07-13T18:00","2026-07-13T18:15"],
+ "precipitation":[0.0,0.5,1.2]}}`
+
+// one yellow wind warning for Noord-Holland, one orange for Limburg
+const warnXML = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+ <entry>
+  <cap:areaDesc>Noord-Holland</cap:areaDesc>
+  <cap:event>Moderate Wind</cap:event>
+  <cap:severity>Moderate</cap:severity>
+  <cap:expires>2126-07-14T14:39:29+00:00</cap:expires>
+  <cap:identifier>id-nh-wind-1</cap:identifier>
+  <title>Yellow Wind Warning issued for The Netherlands - Noord-Holland</title>
+ </entry>
+ <entry>
+  <cap:areaDesc>Limburg</cap:areaDesc>
+  <cap:event>Severe Thunderstorm</cap:event>
+  <cap:severity>Severe</cap:severity>
+  <cap:expires>2126-07-14T14:39:29+00:00</cap:expires>
+  <cap:identifier>id-li-onweer-1</cap:identifier>
+  <title>Orange Thunderstorm Warning issued for The Netherlands - Limburg</title>
+ </entry>
+</feed>`
 
 // two stations: Berkhout near Hauwert, De Bilt far; Houtribdijk is
 // nearest of all but has no temperature and must be skipped
@@ -33,15 +63,17 @@ const rainDry = "000|17:00\n000|17:05\n000|17:10\n"
 const rainWet = "000|17:00\n077|17:05\n141|17:10\n000|17:15\n"
 
 type fixture struct {
-	m    *Module
-	b    *bus.Bus
-	cmds *cmd.Registry
-	cf   *conf.Conf
-	sch  *sched.Sched
-	clk  time.Time
-	sent []string
-	urls []string // fetched urls, in order
-	body map[string]string
+	m     *Module
+	b     *bus.Bus
+	cmds  *cmd.Registry
+	cf    *conf.Conf
+	sch   *sched.Sched
+	saver *storage.Saver
+	pg    *pager.Pager
+	clk   time.Time
+	sent  []string
+	urls  []string // fetched urls, in order
+	body  map[string]string
 }
 
 func newFixture(t *testing.T, store storage.Store) *fixture {
@@ -69,16 +101,28 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 		cb(fetch.Result{URL: url, Err: fmt.Errorf("no fixture for %s", url)})
 		return true
 	}
+	// bodies must exist before Load: the module warms its warning cache
+	// there (a fresh core is otherwise blind to code geel for a whole
+	// poll interval)
+	f.body[geoURL] = geoHauwert
+	f.body[feedURL] = feedJSON
+	f.body[rainURL] = rainDry
+	f.body[warnURL] = warnXML
+	f.body[meteoURL] = meteoJSON
+	f.pg = pager.New(f.sch, func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) })
+	f.pg.MaxLines = func() int { return 4 }
+	f.saver = storage.NewSaver(store,
+		func(fn func()) { fn() },
+		func(err error) { t.Errorf("saver: %v", err) })
 	err := f.m.Load(&module.Context{
 		Bus: f.b, Cmd: f.cmds, Conf: f.cf, Store: store, Sched: f.sch,
+		Saver: f.saver, Pager: f.pg,
 		Privmsg: func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.body[geoURL] = geoHauwert
-	f.body[feedURL] = feedJSON
-	f.body[rainURL] = rainDry
+	f.urls = nil // the load-time warm-up is not what the tests count
 	return f
 }
 
@@ -152,6 +196,102 @@ func TestValueColors(t *testing.T) {
 		if tc.got != tc.want {
 			t.Fatalf("colored value = %q, want %q", tc.got, tc.want)
 		}
+	}
+}
+
+// The Barcelona bug (live, 2026-07-13): a foreign place reported the
+// nearest DUTCH station (Maastricht, 1090km) as if it were the local
+// weather. Abroad must come from open-meteo instead.
+func TestForeignPlaceUsesOpenMeteo(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.body[geoURL] = geoBarcelona
+	f.msg("BenV", "#testing", "!weer barcelona")
+	got := f.take()
+	if len(got) != 1 {
+		t.Fatalf("sent = %q", got)
+	}
+	if strings.Contains(got[0], "Maastricht") || strings.Contains(got[0], "meetstation") {
+		t.Fatalf("foreign place reported from a dutch station: %q", got[0])
+	}
+	// real Barcelona numbers, plus the wind direction converted from degrees
+	for _, want := range []string{"Barcelona", "29.2°C", "32.8°C", "66%", "bewolkt"} {
+		if !strings.Contains(got[0], want) {
+			t.Fatalf("open-meteo output missing %q: %q", want, got[0])
+		}
+	}
+}
+
+// Same trap for rain: buienradar's raintext only covers the Benelux.
+func TestForeignRainUsesOpenMeteo(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.body[geoURL] = geoBarcelona
+	f.body[meteoURL] = meteoRainJSON
+	f.msg("BenV", "#testing", "!regen barcelona")
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "Barcelona") {
+		t.Fatalf("foreign regen = %q", got)
+	}
+	if strings.Contains(strings.Join(f.urls, " "), rainURL) {
+		t.Fatalf("used buienradar raintext for a foreign place: %v", f.urls)
+	}
+	if !strings.Contains(got[0], "18:00") { // rain starts at the second point
+		t.Fatalf("foreign regen missing the rain start: %q", got[0])
+	}
+}
+
+// A dutch place too far from any station is still nonsense; the guard
+// is the distance, not just the country.
+func TestFarDutchPlaceFallsBack(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	// a "NL" place way out in the North Sea: no station within 50km
+	f.body[geoURL] = `{"results":[{"name":"Doggersbank","latitude":54.9,"longitude":3.0,"country_code":"NL","admin1":""}]}`
+	f.msg("BenV", "#testing", "!weer doggersbank")
+	got := f.take()
+	if len(got) != 1 || strings.Contains(got[0], "meetstation") {
+		t.Fatalf("far dutch place still used a station: %q", got)
+	}
+}
+
+// Code geel/oranje/rood: an active warning for the place's area shows
+// up in !weer, and !weeralarm lists everything active.
+func TestWarningInWeerAndList(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "!weer") // Hauwert = Noord-Holland
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "code geel") || !strings.Contains(got[0], "wind") {
+		t.Fatalf("weer output lacks the yellow warning: %q", got)
+	}
+
+	f.msg("BenV", "#testing", "!weeralarm")
+	got = f.take()
+	all := strings.Join(got, "\n")
+	if !strings.Contains(all, "Noord-Holland") || !strings.Contains(all, "Limburg") ||
+		!strings.Contains(all, "code geel") || !strings.Contains(all, "code oranje") {
+		t.Fatalf("weeralarm list = %q", got)
+	}
+}
+
+// New warnings for the configured areas are broadcast once, not on
+// every poll.
+func TestWarningBroadcastOnce(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.cf.Set("weather_report_channels", "#testing")
+	f.cf.Set("weather_warn_areas", "Noord-Holland")
+
+	f.clk = f.clk.Add(warnPoll + time.Second)
+	f.sch.RunDue()
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "code geel") || !strings.Contains(got[0], "Noord-Holland") {
+		t.Fatalf("first broadcast = %q", got)
+	}
+	if strings.Contains(got[0], "Limburg") {
+		t.Fatalf("broadcast an area we did not ask for: %q", got[0])
+	}
+
+	f.clk = f.clk.Add(warnPoll + time.Second)
+	f.sch.RunDue()
+	if got := f.take(); len(got) != 0 {
+		t.Fatalf("same warning broadcast twice: %q", got)
 	}
 }
 
