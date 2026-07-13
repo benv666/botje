@@ -84,8 +84,11 @@ services:
       - ./mounts/logs:/logs
     ports:
       - "127.0.0.1:1924:1924"
-      # prometheus scrape target, loopback-only like the admin port
-      - "127.0.0.1:9095:9095"
+      # prometheus scrape target; loopback-only by default like the
+      # admin port. A containerized prometheus cannot reach the host's
+      # loopback, so set BOTJE_METRICS_BIND to a LAN IP in .env when an
+      # external prometheus scrapes it.
+      - "${BOTJE_METRICS_BIND:-127.0.0.1:9095}:9095"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 1924 || exit 1"]
       interval: 30s
