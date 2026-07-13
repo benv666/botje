@@ -176,13 +176,51 @@ Import > paste the JSON, pick your prometheus datasource).
 | tinyurl | `!tinyurl <url>`, auto-shortens channel URLs over 40 chars |
 | wiki | `!wiki <query>`, top 3 Wikipedia hits (15s per-channel spam brake) |
 | urband | `!ud <term>` via RapidAPI Urban Dictionary; needs `conf urband_rapidapi_key=...` |
-| weather | `!weer [plaats]` (nearest buienradar station in NL, open-meteo abroad), `!regen [plaats]` (2h precipitation sparkline), `!weeralarm` (active code geel/oranje/rood from meteoalarm; also appended to `!weer` for that province). Default place `conf weather_home`; daily report at `conf weather_report_time` to `conf weather_report_channels` (empty = off); new warnings for `conf weather_warn_areas` (e.g. `Noord-Holland`) broadcast to those channels |
+| weather | `!weer [plaats]`, `!weer full [plaats]`, `!regen [plaats]`, `!weeralarm` (code geel/oranje/rood). See [Weather](#weather-weer-regen-weeralarm) below |
 | wolframalpha | `!wa <query>`; needs `conf wolframalpha_appid=...` |
 | remind | `!remind <min> <hour> <day> <mon> <dow> <msg>` (cron, day/month names ok), `!remind show\|clear <ids>`; `!remember <name> <val>` / `!recall <name> [n]` / `!forget <name>` notepad (last 3 per name) |
 | llm | `!gpt <q>` (OpenAI), `!claude [model] <q>` (Bedrock), `!oi [model] <q>` (Ollama); per-channel history; keys in `conf llm_openai_key` / `llm_aws_key`+`llm_aws_secret` / `llm_ollama_url` |
 | core | `!more [command]` pages long replies |
 
 Unknown `!commands` get a Levenshtein did-you-mean.
+
+## Weather (`!weer`, `!regen`, `!weeralarm`)
+
+All free APIs, no keys, nothing to sign up for.
+
+| command | what you get |
+|---|---|
+| `!weer` | current conditions at `conf weather_home` |
+| `!weer <plaats>` | anywhere: `!weer alkmaar`, `!weer barcelona` |
+| `!weer full [plaats]` | what is still coming today (peak temperature, rain, sunset) plus tomorrow at a glance |
+| `!regen [plaats]` | next two hours of precipitation as a sparkline, with rain-from and peak mm/h |
+| `!weeralarm` | every active code geel/oranje/rood |
+| `!weer help` | usage (also `?`, or any unknown place) |
+
+Sources: inside the Netherlands the nearest buienradar station that has
+a thermometer (a few only measure wind); abroad, or when no station is
+within 50 km, [open-meteo](https://open-meteo.com). Rain comes from
+buienradar's raintext in the Benelux and open-meteo elsewhere. Place
+names are geocoded once (open-meteo) and cached forever.
+
+Warnings come from the [meteoalarm](https://meteoalarm.org) CAP feed,
+which carries the KNMI warnings (KNMI's own public RSS has been frozen
+since storm Ciarán in 2023, and their Open Data API needs a registered
+key). An active warning for a place's province is appended to its
+`!weer` line automatically.
+
+Configure over telnet (`conf <name>=<value>`):
+
+| setting | default | meaning |
+|---|---|---|
+| `weather_home` | `Hauwert` | default place for every command |
+| `weather_report_channels` | *(empty = off)* | channels for the daily report and warning broadcasts |
+| `weather_report_time` | `07:00` | when the daily report goes out |
+| `weather_warn_areas` | *(empty = off)* | meteoalarm areas to broadcast new warnings for, e.g. `Noord-Holland` or `Noord-Holland,IJmuiden` (provinces plus coastal regions) |
+
+New warnings are broadcast once (deduplicated by CAP identifier, and
+that memory survives restarts), so a code oranje does not repeat every
+poll.
 
 ## Data migration (Perl Storable -> go-botje)
 
