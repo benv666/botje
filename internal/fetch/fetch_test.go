@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -238,5 +239,35 @@ func TestConnectError(t *testing.T) {
 	}
 	if r := await(t, deliver, &got); r.Err == nil {
 		t.Fatal("expected connect error")
+	}
+}
+
+func TestObserve(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	f, deliver := newFetcher()
+	type obs struct {
+		host  string
+		isErr bool
+	}
+	var seen []obs
+	f.Observe = func(host string, seconds float64, isErr bool) {
+		seen = append(seen, obs{host, isErr})
+	}
+
+	var got []Result
+	f.Fetch(srv.URL, Options{}, collect(&got))
+	await(t, deliver, &got)
+	got = nil
+	f.Fetch("http://127.0.0.1:1/nope", Options{}, collect(&got)) // refused
+	await(t, deliver, &got)
+
+	u, _ := url.Parse(srv.URL)
+	want := []obs{{u.Host, false}, {"127.0.0.1:1", true}}
+	if len(seen) != 2 || seen[0] != want[0] || seen[1] != want[1] {
+		t.Fatalf("observed = %v, want %v", seen, want)
 	}
 }

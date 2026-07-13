@@ -132,3 +132,15 @@ func (q *Queue) Len() int {
 	}
 	return n
 }
+
+// Depths reports queued lines per bucket (channel or the generic
+// bucket); high-priority lines are not included. Metrics food.
+func (q *Queue) Depths() map[string]int {
+	d := make(map[string]int, len(q.buckets))
+	for bucket, lines := range q.buckets {
+		if len(lines) > 0 {
+			d[bucket] = len(lines)
+		}
+	}
+	return d
+}
