@@ -267,9 +267,25 @@ func (m *Module) place(arg string) (place string, wantHelp bool) {
 
 func (m *Module) cbWeer(d *cmd.Data) bool {
 	channel := d.Event.Channel
-	place, wantHelp := m.place(d.Data)
+	arg := strings.TrimSpace(d.Data)
+	// "!weer full [plaats]": add the rest-of-day forecast
+	full := false
+	if rest, ok := cutWord(arg, "full", "volledig", "compleet"); ok {
+		full, arg = true, rest
+	}
+	place, wantHelp := m.place(arg)
 	if wantHelp {
 		m.ctx.Privmsg(channel, m.usage())
+		return true
+	}
+	if full {
+		m.resolve(place, func(g geo, ok bool) {
+			if !ok {
+				m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage()))
+				return
+			}
+			m.openMeteoForecast(channel, g)
+		})
 		return true
 	}
 	m.resolve(place, func(g geo, ok bool) {
@@ -327,6 +343,94 @@ func (m *Module) openMeteoWeer(channel string, g geo) {
 		}
 		fmt.Fprintf(&b, ", %s, wind %s %s, %s vochtig",
 			wmoText(c.Code), windDir(degToDir(c.WindDeg)), windBft(msToBft(c.WindMS)), humidity(c.Humidity))
+		m.ctx.Privmsg(channel, b.String()+m.warnSuffix(g))
+	})
+}
+
+// cutWord strips a leading keyword from an argument, reporting whether
+// it was there ("full hauwert" -> "hauwert", true).
+func cutWord(arg string, words ...string) (string, bool) {
+	first, rest, _ := strings.Cut(arg, " ")
+	for _, w := range words {
+		if strings.EqualFold(first, w) {
+			return strings.TrimSpace(rest), true
+		}
+	}
+	return arg, false
+}
+
+// openMeteoForecast is "!weer full": what is still coming today (the
+// hours already past are not news) plus a one-glance tomorrow. Hourly
+// data comes from open-meteo so it works anywhere; the location's own
+// clock (current.time) decides what counts as past.
+func (m *Module) openMeteoForecast(channel string, g geo) {
+	u := fmt.Sprintf("%s?latitude=%.4f&longitude=%.4f&current=temperature_2m"+
+		"&hourly=temperature_2m,precipitation_probability,weather_code"+
+		"&daily=sunset,temperature_2m_min,temperature_2m_max,precipitation_probability_max,weather_code"+
+		"&forecast_days=2&timezone=auto", meteoURL, g.Lat, g.Lon)
+	m.fetch(u, fetch.Options{}, func(res fetch.Result) {
+		var out struct {
+			Current struct {
+				Time string `json:"time"`
+			} `json:"current"`
+			Hourly struct {
+				Time    []string  `json:"time"`
+				Temp    []float64 `json:"temperature_2m"`
+				RainPct []float64 `json:"precipitation_probability"`
+				Code    []int     `json:"weather_code"`
+			} `json:"hourly"`
+			Daily struct {
+				Time    []string  `json:"time"`
+				Sunset  []string  `json:"sunset"`
+				Min     []float64 `json:"temperature_2m_min"`
+				Max     []float64 `json:"temperature_2m_max"`
+				RainPct []float64 `json:"precipitation_probability_max"`
+				Code    []int     `json:"weather_code"`
+			} `json:"daily"`
+		}
+		if res.Err != nil || json.Unmarshal(res.Body, &out) != nil || len(out.Hourly.Time) == 0 {
+			m.ctx.Privmsg(channel, "De verwachting is even zoek.")
+			return
+		}
+		now := out.Current.Time // location-local, "2006-01-02T15:04"
+		today, _, _ := strings.Cut(now, "T")
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "{B}{b}%s{/}", g.Name)
+
+		// rest of today: peak temperature still ahead, the wettest hour
+		// still ahead, sunset if it has not happened yet
+		peakT, peakAt := math.Inf(-1), ""
+		wetPct, wetAt := 0.0, ""
+		for i, ts := range out.Hourly.Time {
+			if ts <= now || !strings.HasPrefix(ts, today) {
+				continue // already history, or not today anymore
+			}
+			if i < len(out.Hourly.Temp) && out.Hourly.Temp[i] > peakT {
+				peakT, peakAt = out.Hourly.Temp[i], clockOf(ts)
+			}
+			if i < len(out.Hourly.RainPct) && out.Hourly.RainPct[i] > wetPct {
+				wetPct, wetAt = out.Hourly.RainPct[i], clockOf(ts)
+			}
+		}
+		if peakAt != "" {
+			fmt.Fprintf(&b, " vandaag nog: tot %s (rond %s)", temp(peakT), peakAt)
+			if wetPct >= 20 {
+				fmt.Fprintf(&b, ", regenkans %s rond %s", rainChance(wetPct), wetAt)
+			} else {
+				fmt.Fprintf(&b, ", droog")
+			}
+			if len(out.Daily.Sunset) > 0 && out.Daily.Sunset[0] > now {
+				fmt.Fprintf(&b, ", zon onder %s", clockOf(out.Daily.Sunset[0]))
+			}
+			b.WriteString(".")
+		}
+		// tomorrow, at a glance
+		if len(out.Daily.Time) > 1 {
+			fmt.Fprintf(&b, " Morgen: %s-%s, %s, regenkans %s.",
+				temp(out.Daily.Min[1]), temp(out.Daily.Max[1]),
+				wmoText(out.Daily.Code[1]), rainChance(out.Daily.RainPct[1]))
+		}
 		m.ctx.Privmsg(channel, b.String()+m.warnSuffix(g))
 	})
 }

@@ -28,6 +28,18 @@ const meteoJSON = `{"current":{"time":"2026-07-13T17:45","temperature_2m":29.2,"
 const meteoRainJSON = `{"minutely_15":{"time":["2026-07-13T17:45","2026-07-13T18:00","2026-07-13T18:15"],
  "precipitation":[0.0,0.5,1.2]}}`
 
+// forecast at 12:00 local: warms to 26 at 15:00, a 70% shower at 17:00,
+// sunset 21:58. Tomorrow 15-22 and wet.
+const forecastJSON = `{"current":{"time":"2026-07-13T12:00"},
+ "hourly":{"time":["2026-07-13T11:00","2026-07-13T13:00","2026-07-13T15:00","2026-07-13T17:00","2026-07-13T21:00","2026-07-14T09:00"],
+  "temperature_2m":[20.0,23.0,26.4,24.0,18.0,16.0],
+  "precipitation_probability":[0,10,20,70,5,80],
+  "weather_code":[1,2,3,80,1,61]},
+ "daily":{"time":["2026-07-13","2026-07-14"],
+  "sunset":["2026-07-13T21:58","2026-07-14T21:57"],
+  "temperature_2m_min":[14.0,15.0],"temperature_2m_max":[26.4,22.0],
+  "precipitation_probability_max":[70,80],"weather_code":[80,61]}}`
+
 // one yellow wind warning for Noord-Holland, one orange for Limburg
 const warnXML = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
@@ -90,10 +102,13 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 	f.sch = sched.New(func() time.Time { return f.clk })
 	f.m = New()
 	f.m.Now = func() time.Time { return f.clk }
+	// fixtures are keyed by a distinctive substring of the url: the
+	// open-meteo endpoints differ only by query (current / minutely_15 /
+	// hourly), so a prefix match cannot tell them apart
 	f.m.fetch = func(url string, opts fetch.Options, cb func(fetch.Result)) bool {
 		f.urls = append(f.urls, url)
-		for prefix, body := range f.body {
-			if strings.HasPrefix(url, prefix) {
+		for key, body := range f.body {
+			if strings.Contains(url, key) {
 				cb(fetch.Result{URL: url, Status: 200, Body: []byte(body)})
 				return true
 			}
@@ -108,7 +123,8 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 	f.body[feedURL] = feedJSON
 	f.body[rainURL] = rainDry
 	f.body[warnURL] = warnXML
-	f.body[meteoURL] = meteoJSON
+	f.body["apparent_temperature"] = meteoJSON
+	f.body["hourly="] = forecastJSON
 	f.pg = pager.New(f.sch, func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) })
 	f.pg.MaxLines = func() int { return 4 }
 	f.saver = storage.NewSaver(store,
@@ -225,7 +241,7 @@ func TestForeignPlaceUsesOpenMeteo(t *testing.T) {
 func TestForeignRainUsesOpenMeteo(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.body[geoURL] = geoBarcelona
-	f.body[meteoURL] = meteoRainJSON
+	f.body["minutely_15"] = meteoRainJSON
 	f.msg("BenV", "#testing", "!regen barcelona")
 	got := f.take()
 	if len(got) != 1 || !strings.Contains(got[0], "Barcelona") {
@@ -292,6 +308,53 @@ func TestWarningBroadcastOnce(t *testing.T) {
 	f.sch.RunDue()
 	if got := f.take(); len(got) != 0 {
 		t.Fatalf("same warning broadcast twice: %q", got)
+	}
+}
+
+// !weer full: the rest of today, only the bits still ahead. At 12:00
+// the 11:00 hour is history and must not appear; the 26.4 peak at
+// 15:00, the 70% shower at 17:00, and sunset do.
+func TestWeerFullRestOfDay(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "!weer full")
+	got := f.take()
+	if len(got) != 1 {
+		t.Fatalf("sent = %q", got)
+	}
+	for _, want := range []string{"Hauwert", "vandaag nog", "26", "15:00", "70%", "17:00", "21:58", "Morgen", "22"} {
+		if !strings.Contains(got[0], want) {
+			t.Fatalf("full forecast missing %q: %q", want, got[0])
+		}
+	}
+	if strings.Contains(got[0], "20.0") || strings.Contains(got[0], "11:00") {
+		t.Fatalf("full forecast shows hours already past: %q", got[0])
+	}
+}
+
+// Late in the evening there is no day left: skip today, lead with
+// tomorrow ("only the bits that are still relevant").
+func TestWeerFullLateEveningSkipsToday(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.body["hourly="] = strings.Replace(forecastJSON,
+		`"current":{"time":"2026-07-13T12:00"}`, `"current":{"time":"2026-07-13T23:30"}`, 1)
+	f.msg("BenV", "#testing", "!weer full")
+	got := f.take()
+	if len(got) != 1 || strings.Contains(got[0], "vandaag") {
+		t.Fatalf("late evening still reports today: %q", got)
+	}
+	if !strings.Contains(got[0], "Morgen") || !strings.Contains(got[0], "22") {
+		t.Fatalf("late evening lacks tomorrow: %q", got)
+	}
+}
+
+// "!weer full <plaats>" works for a place too, and abroad.
+func TestWeerFullWithPlace(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.body[geoURL] = geoBarcelona
+	f.msg("BenV", "#testing", "!weer full barcelona")
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "Barcelona") || !strings.Contains(got[0], "Morgen") {
+		t.Fatalf("full forecast for a place = %q", got)
 	}
 }
 
