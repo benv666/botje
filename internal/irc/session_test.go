@@ -338,6 +338,39 @@ func TestJoinChannelsMarksMembership(t *testing.T) {
 	}
 }
 
+// Registration confirmation: 001 on a fresh connection, 462 when a
+// restarted core re-registers over a keeper's live session. Joining is
+// anchored on this, not on a timer: JOINs sent before the server
+// confirms registration die with ERR_NOTREGISTERED (2026-07-13 live).
+func TestSessionWelcome(t *testing.T) {
+	for _, tc := range []struct {
+		name, line string
+	}{
+		{"fresh 001", ":srv 001 Meretrix :Welcome to junerules"},
+		{"resume 462", ":srv 462 Meretrix :You may not reregister"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSess()
+			calls := 0
+			f.s.Welcome = func() { calls++ }
+			if f.s.Welcomed() {
+				t.Fatal("welcomed before any server line")
+			}
+			f.s.HandleLine(tc.line)
+			if !f.s.Welcomed() || calls != 1 {
+				t.Fatalf("welcomed=%v calls=%d after %q", f.s.Welcomed(), calls, tc.line)
+			}
+			// a second confirmation must not re-fire (001 after a 462
+			// resume, or vice versa)
+			f.s.HandleLine(":srv 001 Meretrix :Welcome again")
+			f.s.HandleLine(":srv 462 Meretrix :You may not reregister")
+			if calls != 1 {
+				t.Fatalf("Welcome fired %d times, want once", calls)
+			}
+		})
+	}
+}
+
 func TestBackoff(t *testing.T) {
 	t0 := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	var b Backoff
