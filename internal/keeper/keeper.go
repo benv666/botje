@@ -69,6 +69,7 @@ type keeper struct {
 	buffer     []byte   // inbound held for an absent core
 	outBuf     []byte   // outbound held while IRC is away
 	outDropped bool     // outBuf overflowed; dropping until the next flush
+	closed     bool     // shutting down; refuse fresh connections
 }
 
 // Run connects to IRC, serves the core socket, and relays until ctx is
@@ -128,9 +129,13 @@ func (k *keeper) goodbye() {
 }
 
 // closeConns closes the live IRC and core connections so the pump
-// goroutines' Read calls return; used on shutdown.
+// goroutines' Read calls return; used on shutdown. It also marks the
+// keeper closed: a dial that was in flight when shutdown hit would
+// otherwise install a connection nobody is left to close (setIRC
+// refuses it instead).
 func (k *keeper) closeConns() {
 	k.mu.Lock()
+	k.closed = true
 	irc, core := k.irc, k.core
 	k.mu.Unlock()
 	if irc != nil {
@@ -240,6 +245,11 @@ func (k *keeper) bufferLocked(b []byte) {
 
 func (k *keeper) setIRC(conn net.Conn) {
 	k.mu.Lock()
+	if conn != nil && k.closed {
+		k.mu.Unlock()
+		conn.Close() // shutdown won the race; pumpIRC exits right away
+		return
+	}
 	old := k.irc
 	k.irc = conn
 	if conn != nil && len(k.outBuf) > 0 {
