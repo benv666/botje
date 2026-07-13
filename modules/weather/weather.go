@@ -361,7 +361,7 @@ func colorTempStr(s string) string {
 func weerLine(place string, st *station, km int) string {
 	name := strings.TrimPrefix(st.Name, "Meetstation ")
 	var b strings.Builder
-	fmt.Fprintf(&b, "{B}%s{/} (meetstation %s, %dkm):", place, name, km)
+	fmt.Fprintf(&b, "{B}{b}%s{/} (meetstation %s, %dkm):", place, name, km)
 	if st.Temperature != nil {
 		fmt.Fprintf(&b, " %s", temp(*st.Temperature))
 		if st.FeelsLike != nil && *st.FeelsLike != *st.Temperature {
@@ -423,14 +423,14 @@ func regenLine(place string, pts []rainPoint) string {
 	}
 	last := pts[len(pts)-1].Time
 	if firstWet == -1 {
-		return fmt.Sprintf("{B}%s{/}: droog tot zeker %s.", place, last)
+		return fmt.Sprintf("{B}{b}%s{/}: droog tot zeker %s.", place, last)
 	}
 	spark := format.Sparkline(values, 1)[0]
 	when := "nu regen"
 	if firstWet > 0 {
 		when = "regen vanaf " + pts[firstWet].Time
 	}
-	return fmt.Sprintf("{B}%s{/}: {C}%s{/} (tot %s), %s, piek {C}%.1fmm/u{/} om %s",
+	return fmt.Sprintf("{B}{b}%s{/}: {C}%s{/} (tot %s), %s, piek {C}%.1fmm/u{/} om %s",
 		place, spark, last, when, mmPerHour(peak), peakAt)
 }
 

@@ -105,7 +105,7 @@ func TestWeerDefaultsToHome(t *testing.T) {
 	}
 	// 24.6°C is warm = orange, and every color must be reset: an
 	// unclosed tag paints the rest of the line navy (live complaint)
-	for _, want := range []string{"{B}Hauwert{/}", "Berkhout", "{y}24.6°C{/}", "NNO 3Bft", "vrijwel onbewolkt"} {
+	for _, want := range []string{"{B}{b}Hauwert{/}", "Berkhout", "{y}24.6°C{/}", "NNO 3Bft", "vrijwel onbewolkt"} {
 		if !strings.Contains(got[0], want) {
 			t.Fatalf("weer output missing %q: %q", want, got[0])
 		}
@@ -113,7 +113,9 @@ func TestWeerDefaultsToHome(t *testing.T) {
 	if strings.Contains(got[0], "Houtribdijk") {
 		t.Fatalf("picked a station without temperature: %q", got[0])
 	}
-	if strings.Contains(got[0], "{b}") {
+	// bare {b} is navy paint (the live complaint); {B}{b} is the light
+	// blue name highlight and fine
+	if strings.Count(got[0], "{b}") != strings.Count(got[0], "{B}{b}") {
 		t.Fatalf("navy paint in output: %q", got[0])
 	}
 }
