@@ -38,7 +38,13 @@ const (
 	rainURL = "https://gpsgadget.buienradar.nl/data/raintext"
 
 	feedTTL = 5 * time.Minute
+	rainTTL = 3 * time.Minute
 )
+
+type rainEntry struct {
+	pts []rainPoint
+	at  time.Time
+}
 
 type geo struct {
 	Name string  `json:"name"`
@@ -91,6 +97,7 @@ type Module struct {
 	ctx       *module.Context
 	fetch     func(url string, opts fetch.Options, cb func(fetch.Result)) bool
 	geoCache  map[string]geo
+	rainCache map[string]rainEntry
 	lastFeed  *feed
 	feedAt    time.Time
 	reportGen int
@@ -119,6 +126,7 @@ func (m *Module) Load(ctx *module.Context) error {
 	ctx.Conf.CreateString("weather_report_channels", "")
 
 	m.geoCache = make(map[string]geo)
+	m.rainCache = make(map[string]rainEntry)
 	ctx.Cmd.Register(m.Name(), "weer", m.cbWeer)
 	ctx.Cmd.Register(m.Name(), "regen", m.cbRegen)
 	if err := ctx.Bus.RegisterHook(m.Name(), "config_changed", m.onConfChanged); err != nil {
@@ -194,19 +202,35 @@ func (m *Module) withFeed(cb func(f *feed, ok bool)) {
 	})
 }
 
-func (m *Module) place(arg string) string {
-	if arg = strings.TrimSpace(arg); arg != "" {
-		return arg
+const usage = "Gebruik: !weer [plaats] voor het actuele weer, !regen [plaats] voor de komende twee uur neerslag. Bijv: !weer alkmaar. Zonder plaats: %s."
+
+func (m *Module) usage() string {
+	return fmt.Sprintf(usage, m.ctx.Conf.String("weather_home"))
+}
+
+// place resolves the command argument; help-ish arguments ("?", "help")
+// return wantHelp because users absolutely will type "!regen ?".
+func (m *Module) place(arg string) (place string, wantHelp bool) {
+	arg = strings.TrimSpace(arg)
+	switch strings.ToLower(arg) {
+	case "?", "help", "hulp":
+		return "", true
+	case "":
+		return m.ctx.Conf.String("weather_home"), false
 	}
-	return m.ctx.Conf.String("weather_home")
+	return arg, false
 }
 
 func (m *Module) cbWeer(d *cmd.Data) bool {
 	channel := d.Event.Channel
-	place := m.place(d.Data)
+	place, wantHelp := m.place(d.Data)
+	if wantHelp {
+		m.ctx.Privmsg(channel, m.usage())
+		return true
+	}
 	m.resolve(place, func(g geo, ok bool) {
 		if !ok {
-			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s.", place))
+			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage()))
 			return
 		}
 		m.withFeed(func(f *feed, ok bool) {
@@ -227,16 +251,18 @@ func (m *Module) cbWeer(d *cmd.Data) bool {
 
 func (m *Module) cbRegen(d *cmd.Data) bool {
 	channel := d.Event.Channel
-	place := m.place(d.Data)
+	place, wantHelp := m.place(d.Data)
+	if wantHelp {
+		m.ctx.Privmsg(channel, m.usage())
+		return true
+	}
 	m.resolve(place, func(g geo, ok bool) {
 		if !ok {
-			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s.", place))
+			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage()))
 			return
 		}
-		u := fmt.Sprintf("%s?lat=%.2f&lon=%.2f", rainURL, g.Lat, g.Lon)
-		m.fetch(u, fetch.Options{}, func(res fetch.Result) {
-			pts := parseRain(res.Body)
-			if res.Err != nil || len(pts) == 0 {
+		m.withRain(g, func(pts []rainPoint, ok bool) {
+			if !ok {
 				m.ctx.Privmsg(channel, "Buienradar doet het even niet.")
 				return
 			}
@@ -244,6 +270,32 @@ func (m *Module) cbRegen(d *cmd.Data) bool {
 		})
 	})
 	return true
+}
+
+// withRain hands cb the raintext points for a location, cached a few
+// minutes per rounded coordinate so command spam does not hammer
+// buienradar (the data only refreshes every 5 minutes anyway).
+func (m *Module) withRain(g geo, cb func(pts []rainPoint, ok bool)) {
+	key := fmt.Sprintf("%.2f,%.2f", g.Lat, g.Lon)
+	if c, ok := m.rainCache[key]; ok && m.now().Sub(c.at) < rainTTL {
+		cb(c.pts, true)
+		return
+	}
+	u := fmt.Sprintf("%s?lat=%.2f&lon=%.2f", rainURL, g.Lat, g.Lon)
+	m.fetch(u, fetch.Options{}, func(res fetch.Result) {
+		pts := parseRain(res.Body)
+		if res.Err != nil || len(pts) == 0 {
+			cb(nil, false)
+			return
+		}
+		for k, c := range m.rainCache { // keep the cache bounded
+			if m.now().Sub(c.at) >= rainTTL {
+				delete(m.rainCache, k)
+			}
+		}
+		m.rainCache[key] = rainEntry{pts: pts, at: m.now()}
+		cb(pts, true)
+	})
 }
 
 // nearestStation prefers stations that measure temperature (a handful
@@ -275,14 +327,45 @@ func distKm(lat1, lon1, lat2, lon2 float64) float64 {
 	return math.Sqrt(dx*dx + dy*dy)
 }
 
+// tempColor picks a tag by temperature: cold blues to hot red. Every
+// use closes with {/}: an unclosed tag paints the rest of the line.
+func tempColor(t float64) string {
+	switch {
+	case t < 0:
+		return "{C}"
+	case t < 10:
+		return "{c}"
+	case t < 18:
+		return "{g}"
+	case t < 25:
+		return "{y}"
+	default:
+		return "{R}"
+	}
+}
+
+func temp(t float64) string {
+	return fmt.Sprintf("%s%.1f°C{/}", tempColor(t), t)
+}
+
+// colorTempStr colors a temperature the feed hands us as a string
+// (the fivedayforecast values); non-numbers pass through unstyled.
+func colorTempStr(s string) string {
+	var v float64
+	if _, err := fmt.Sscanf(s, "%f", &v); err != nil {
+		return s
+	}
+	return tempColor(v) + s + "{/}"
+}
+
 func weerLine(place string, st *station, km int) string {
 	name := strings.TrimPrefix(st.Name, "Meetstation ")
 	var b strings.Builder
-	fmt.Fprintf(&b, "{b}%s{b} (meetstation %s, %dkm):", place, name, km)
+	fmt.Fprintf(&b, "{B}%s{/} (meetstation %s, %dkm):", place, name, km)
 	if st.Temperature != nil {
-		fmt.Fprintf(&b, " %.1f°C", *st.Temperature)
+		fmt.Fprintf(&b, " %s", temp(*st.Temperature))
 		if st.FeelsLike != nil && *st.FeelsLike != *st.Temperature {
-			fmt.Fprintf(&b, " (voelt als %.1f°C)", *st.FeelsLike)
+			fmt.Fprintf(&b, " (voelt als %s)", temp(*st.FeelsLike))
 		}
 	}
 	if st.Description != "" {
@@ -295,7 +378,7 @@ func weerLine(place string, st *station, km int) string {
 		fmt.Fprintf(&b, ", %.0f%% vochtig", *st.Humidity)
 	}
 	if st.RainLastHr != nil && *st.RainLastHr > 0 {
-		fmt.Fprintf(&b, ", %.1fmm regen in het laatste uur", *st.RainLastHr)
+		fmt.Fprintf(&b, ", {c}%.1fmm{/} regen in het laatste uur", *st.RainLastHr)
 	}
 	return b.String()
 }
@@ -340,14 +423,14 @@ func regenLine(place string, pts []rainPoint) string {
 	}
 	last := pts[len(pts)-1].Time
 	if firstWet == -1 {
-		return fmt.Sprintf("{b}%s{b}: droog tot zeker %s.", place, last)
+		return fmt.Sprintf("{B}%s{/}: droog tot zeker %s.", place, last)
 	}
 	spark := format.Sparkline(values, 1)[0]
 	when := "nu regen"
 	if firstWet > 0 {
 		when = "regen vanaf " + pts[firstWet].Time
 	}
-	return fmt.Sprintf("{b}%s{b}: %s (tot %s), %s, piek %.1fmm/u om %s",
+	return fmt.Sprintf("{B}%s{/}: {C}%s{/} (tot %s), %s, piek {C}%.1fmm/u{/} om %s",
 		place, spark, last, when, mmPerHour(peak), peakAt)
 }
 
@@ -401,7 +484,7 @@ func (m *Module) report() {
 		day := f.Forecast.FiveDay[0]
 		var b strings.Builder
 		fmt.Fprintf(&b, "Goedemorgen! Vandaag: %s, %s-%s°C, regenkans %.0f%%, wind %s %.0fBft.",
-			day.Description, day.MinTemp, day.MaxTemp, day.RainChance,
+			day.Description, colorTempStr(day.MinTemp), colorTempStr(day.MaxTemp), day.RainChance,
 			strings.ToUpper(day.WindDir), day.WindBft)
 		if f.Forecast.Report.Title != "" {
 			fmt.Fprintf(&b, " %s.", strings.TrimSuffix(f.Forecast.Report.Title, "."))
@@ -415,9 +498,7 @@ func (m *Module) report() {
 			if !ok {
 				return
 			}
-			u := fmt.Sprintf("%s?lat=%.2f&lon=%.2f", rainURL, g.Lat, g.Lon)
-			m.fetch(u, fetch.Options{}, func(res fetch.Result) {
-				pts := parseRain(res.Body)
+			m.withRain(g, func(pts []rainPoint, ok bool) {
 				wet := false
 				for _, p := range pts {
 					if p.Value > 0 {
@@ -425,7 +506,7 @@ func (m *Module) report() {
 						break
 					}
 				}
-				if res.Err != nil || !wet {
+				if !ok || !wet {
 					return
 				}
 				line := regenLine(g.Name, pts)
