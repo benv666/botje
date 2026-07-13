@@ -103,13 +103,74 @@ func TestWeerDefaultsToHome(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("sent = %q", got)
 	}
-	for _, want := range []string{"Hauwert", "Berkhout", "24.6", "NNO 3Bft", "vrijwel onbewolkt"} {
+	// 24.6°C is warm = orange, and every color must be reset: an
+	// unclosed tag paints the rest of the line navy (live complaint)
+	for _, want := range []string{"{B}Hauwert{/}", "Berkhout", "{y}24.6°C{/}", "NNO 3Bft", "vrijwel onbewolkt"} {
 		if !strings.Contains(got[0], want) {
 			t.Fatalf("weer output missing %q: %q", want, got[0])
 		}
 	}
 	if strings.Contains(got[0], "Houtribdijk") {
 		t.Fatalf("picked a station without temperature: %q", got[0])
+	}
+	if strings.Contains(got[0], "{b}") {
+		t.Fatalf("navy paint in output: %q", got[0])
+	}
+}
+
+func TestTempColor(t *testing.T) {
+	for _, tc := range []struct {
+		temp float64
+		want string
+	}{{-5, "{C}"}, {5, "{c}"}, {15, "{g}"}, {20, "{y}"}, {30, "{R}"}} {
+		if got := tempColor(tc.temp); got != tc.want {
+			t.Fatalf("tempColor(%v) = %q, want %q", tc.temp, got, tc.want)
+		}
+	}
+}
+
+// Trolls will type "!regen ?" and "!weer help"; they get usage, and an
+// unknown place explains itself instead of a bare "ken ik niet".
+func TestHelpAndUnknownPlaceExplain(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	for _, line := range []string{"!weer ?", "!regen help", "!weer atlantis"} {
+		if line == "!weer atlantis" {
+			f.body[geoURL] = geoNiks
+		}
+		f.msg("BenV", "#testing", line)
+		got := f.take()
+		if len(got) != 1 || !strings.Contains(got[0], "!weer [plaats]") {
+			t.Fatalf("%s reply lacks usage: %q", line, got)
+		}
+	}
+}
+
+// raintext is cached per location so command spam does not hammer
+// buienradar (the feed already had its own cache).
+func TestRainCached(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "!regen")
+	f.msg("BenV", "#testing", "!regen")
+	rainCalls := 0
+	for _, u := range f.urls {
+		if strings.HasPrefix(u, rainURL) {
+			rainCalls++
+		}
+	}
+	if rainCalls != 1 {
+		t.Fatalf("raintext fetched %d times, want 1 (cache)", rainCalls)
+	}
+	// cache expires
+	f.clk = f.clk.Add(10 * time.Minute)
+	f.msg("BenV", "#testing", "!regen")
+	rainCalls = 0
+	for _, u := range f.urls {
+		if strings.HasPrefix(u, rainURL) {
+			rainCalls++
+		}
+	}
+	if rainCalls != 2 {
+		t.Fatalf("raintext fetched %d times after TTL, want 2", rainCalls)
 	}
 }
 
@@ -178,7 +239,7 @@ func TestRegenWet(t *testing.T) {
 		t.Fatalf("wet regen = %q", got)
 	}
 	// 141 -> 10^((141-109)/32) = 10 mm/u peak at 17:10, rain from 17:05
-	for _, want := range []string{"17:05", "10.0", "17:10"} {
+	for _, want := range []string{"17:05", "10.0", "17:10", "{/}"} {
 		if !strings.Contains(got[0], want) {
 			t.Fatalf("wet regen missing %q: %q", want, got[0])
 		}
