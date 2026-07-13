@@ -28,13 +28,15 @@ const meteoJSON = `{"current":{"time":"2026-07-13T17:45","temperature_2m":29.2,"
 const meteoRainJSON = `{"minutely_15":{"time":["2026-07-13T17:45","2026-07-13T18:00","2026-07-13T18:15"],
  "precipitation":[0.0,0.5,1.2]}}`
 
-// forecast at 12:00 local: warms to 26 at 15:00, a 70% shower at 17:00,
-// sunset 21:58. Tomorrow 15-22 and wet.
+// forecast at 12:00 local. The 11:00 hour is HOTTER (27.9) and WETTER
+// (95%) than anything still to come: it is history, so it must not be
+// reported. What is still ahead: 26.4 at 15:00 and a 70% shower at
+// 17:00, sunset 21:58. Tomorrow 15-22 and wet.
 const forecastJSON = `{"current":{"time":"2026-07-13T12:00"},
  "hourly":{"time":["2026-07-13T11:00","2026-07-13T13:00","2026-07-13T15:00","2026-07-13T17:00","2026-07-13T21:00","2026-07-14T09:00"],
-  "temperature_2m":[20.0,23.0,26.4,24.0,18.0,16.0],
-  "precipitation_probability":[0,10,20,70,5,80],
-  "weather_code":[1,2,3,80,1,61]},
+  "temperature_2m":[27.9,23.0,26.4,24.0,18.0,16.0],
+  "precipitation_probability":[95,10,20,70,5,80],
+  "weather_code":[80,2,3,80,1,61]},
  "daily":{"time":["2026-07-13","2026-07-14"],
   "sunset":["2026-07-13T21:58","2026-07-14T21:57"],
   "temperature_2m_min":[14.0,15.0],"temperature_2m_max":[26.4,22.0],
@@ -326,8 +328,11 @@ func TestWeerFullRestOfDay(t *testing.T) {
 			t.Fatalf("full forecast missing %q: %q", want, got[0])
 		}
 	}
-	if strings.Contains(got[0], "20.0") || strings.Contains(got[0], "11:00") {
-		t.Fatalf("full forecast shows hours already past: %q", got[0])
+	// the 11:00 hour was hotter and wetter, but it already happened
+	for _, gone := range []string{"27.9", "95%", "11:00"} {
+		if strings.Contains(got[0], gone) {
+			t.Fatalf("full forecast reports the hour already past (%s): %q", gone, got[0])
+		}
 	}
 }
 
