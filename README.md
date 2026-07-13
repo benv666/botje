@@ -140,13 +140,24 @@ live.
 
 ## Metrics
 
-With `BOTJE_METRICS` set (compose publishes `127.0.0.1:9095`), the bot
-serves Prometheus text at `/metrics`: `botje_connected`,
-`botje_reconnects_total`, `botje_modules`, `botje_admin_logins_total{result}`,
-and per-hook `botje_hook_calls_total{module,event}` +
-`botje_hook_duration_seconds_sum` from the bus call stats. Point your
-Prometheus at it and graph in Grafana. Hand-rolled exposition, no
-client_golang dependency.
+With `BOTJE_METRICS` set (compose publishes `127.0.0.1:9095` by
+default; set `BOTJE_METRICS_BIND` in `.env` for an external
+prometheus), the bot serves Prometheus text at `/metrics`:
+
+- health: `botje_connected`, `botje_reconnects_total`, `botje_modules`,
+  `botje_admin_logins_total{result}`
+- dispatcher: per-hook `botje_hook_calls_total{module,event}` +
+  `botje_hook_duration_seconds_sum`, `botje_work_backlog`,
+  `botje_flood_queue_depth{channel}`
+- storage: `botje_storage_op_seconds_sum/_count{ns,op}` (every
+  Get/Put/Delete/Names, per namespace)
+- fetch: `botje_fetch_duration_seconds_sum/_count{host}`,
+  `botje_fetch_errors_total{host}`
+- runtime: `go_goroutines`, `go_memstats_*`, `go_gc_*`
+
+Hand-rolled exposition, no client_golang dependency. A ready-made
+dashboard is in `docs/grafana-botje.json` (Grafana: Dashboards >
+Import > paste the JSON, pick your prometheus datasource).
 
 ## IRC commands (modules so far)
 
