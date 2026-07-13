@@ -42,6 +42,7 @@ import (
 	"go-botje/modules/ticker"
 	"go-botje/modules/tinyurl"
 	"go-botje/modules/urband"
+	"go-botje/modules/weather"
 	"go-botje/modules/wiki"
 	"go-botje/modules/wolframalpha"
 )
@@ -339,6 +340,7 @@ func modules() []module.Module {
 		ticker.New(),
 		tinyurl.New(),
 		urband.New(),
+		weather.New(),
 		wiki.New(),
 		wolframalpha.New(),
 	}
