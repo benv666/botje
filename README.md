@@ -36,7 +36,11 @@ Two process models:
 - **keeper + core**: `botje keeper` owns the IRC connection and relays it to
   `botje core` over a unix socket. The core (dispatcher + modules) can restart
   without dropping the IRC session, so module/bugfix upgrades are
-  reconnect-free. This is what the compose stack runs.
+  reconnect-free. This is what the compose stack runs. When the IRC side
+  drops (ircd restart), the keeper cuts the core loose too: the core
+  reconnects over the socket and re-registers, since NICK/USER belong to
+  the core. A connection with no inbound traffic for 5 minutes is
+  declared dead (servers ping much more often than that).
 
 All flags read their default from a `BOTJE_*` environment variable
 (flags win). Site specifics live in the gitignored `.env`; `make run`
