@@ -227,6 +227,7 @@ func Run(ctx context.Context, cfg Config) error {
 	mctx := &module.Context{
 		Bus: c.bus, Cmd: c.cmds, Pager: c.pager, Conf: c.conf,
 		Store: cfg.Store, Saver: c.saver, Sched: c.sch, Fetch: fetcher,
+		Metrics:   cfg.Metrics,
 		Privmsg:   c.privmsg,
 		SendRaw:   c.sendRaw,
 		InChannel: c.inChannel,

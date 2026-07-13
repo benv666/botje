@@ -38,6 +38,7 @@ import (
 	"go-botje/modules/pizza"
 	"go-botje/modules/remind"
 	"go-botje/modules/rss"
+	"go-botje/modules/stats"
 	"go-botje/modules/ticker"
 	"go-botje/modules/tinyurl"
 	"go-botje/modules/urband"
@@ -334,6 +335,7 @@ func modules() []module.Module {
 		pizza.New(),
 		remind.New(),
 		rss.New(),
+		stats.New(),
 		ticker.New(),
 		tinyurl.New(),
 		urband.New(),
