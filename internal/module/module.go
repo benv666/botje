@@ -10,6 +10,7 @@ import (
 	"go-botje/internal/fetch"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/irc/pager"
+	"go-botje/internal/metrics"
 	"go-botje/internal/sched"
 	"go-botje/internal/storage"
 )
@@ -30,6 +31,10 @@ type Context struct {
 	Saver *storage.Saver
 	Sched *sched.Sched
 	Fetch *fetch.Fetcher
+	// Metrics is the prometheus registry, nil when metrics are off;
+	// modules with something to expose push series from the dispatcher
+	// (the registry itself is locked, but module data is not).
+	Metrics *metrics.Registry
 	// Privmsg sends directly, bypassing the pager (the Perl
 	// cmd_privmsg): newline-split, wrapped, flood-queued, colorized.
 	Privmsg func(channel, msg string)
