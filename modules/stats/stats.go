@@ -305,7 +305,7 @@ func (m *Module) replyNick(server, channel, nick string) {
 	}
 	night := t.Hours[0] + t.Hours[1] + t.Hours[2] + t.Hours[3] + t.Hours[4] + t.Hours[5]
 	m.ctx.Privmsg(channel, fmt.Sprintf(
-		"{B}%s{/} in %s: %d regels, %d woorden, %d links, %d vragen, %d geschreeuwd, %d acties, {G}%d blij{/}/{R}%d somber{/}, %d joins, kicks %d/%d, %d nachtregels",
+		"{B}{b}%s{/} in %s: %d regels, %d woorden, %d links, %d vragen, %d geschreeuwd, %d acties, {G}%d blij{/}/{R}%d somber{/}, %d joins, kicks %d/%d, %d nachtregels",
 		t.Nick, channel, t.Lines, t.Words, t.Links, t.Questions, t.Shouts, t.Actions,
 		t.Happy, t.Sad, t.Joins, t.KicksGiven, t.KicksGot, night))
 }
@@ -342,7 +342,7 @@ func (m *Module) replyTitles(server, channel string) {
 			}
 		}
 		if best != nil {
-			lines = append(lines, fmt.Sprintf("{B}%s{/}: %s (%d %s)", ti.name, best.Nick, score, ti.unit))
+			lines = append(lines, fmt.Sprintf("{B}{b}%s{/}: %s (%d %s)", ti.name, best.Nick, score, ti.unit))
 		}
 	}
 	m.ctx.Privmsg(channel, strings.Join(lines, "\n"))
