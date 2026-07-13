@@ -176,7 +176,7 @@ Import > paste the JSON, pick your prometheus datasource).
 | tinyurl | `!tinyurl <url>`, auto-shortens channel URLs over 40 chars |
 | wiki | `!wiki <query>`, top 3 Wikipedia hits (15s per-channel spam brake) |
 | urband | `!ud <term>` via RapidAPI Urban Dictionary; needs `conf urband_rapidapi_key=...` |
-| weather | `!weer [plaats]` (nearest buienradar station), `!regen [plaats]` (2h precipitation sparkline); default place `conf weather_home`; daily report at `conf weather_report_time` to `conf weather_report_channels` (empty = off); place names geocoded via open-meteo, cached |
+| weather | `!weer [plaats]` (nearest buienradar station in NL, open-meteo abroad), `!regen [plaats]` (2h precipitation sparkline), `!weeralarm` (active code geel/oranje/rood from meteoalarm; also appended to `!weer` for that province). Default place `conf weather_home`; daily report at `conf weather_report_time` to `conf weather_report_channels` (empty = off); new warnings for `conf weather_warn_areas` (e.g. `Noord-Holland`) broadcast to those channels |
 | wolframalpha | `!wa <query>`; needs `conf wolframalpha_appid=...` |
 | remind | `!remind <min> <hour> <day> <mon> <dow> <msg>` (cron, day/month names ok), `!remind show\|clear <ids>`; `!remember <name> <val>` / `!recall <name> [n]` / `!forget <name>` notepad (last 3 per name) |
 | llm | `!gpt <q>` (OpenAI), `!claude [model] <q>` (Bedrock), `!oi [model] <q>` (Ollama); per-channel history; keys in `conf llm_openai_key` / `llm_aws_key`+`llm_aws_secret` / `llm_ollama_url` |
