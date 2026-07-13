@@ -25,6 +25,12 @@ type Store interface {
 	Delete(ns, name string) error
 	// Names returns the sorted names present in ns.
 	Names(ns string) ([]string, error)
+	// GetAll returns every (name, raw JSON value) in ns in one round
+	// trip: the bulk boot load for row-per-key data (markov words).
+	GetAll(ns string) (map[string]json.RawMessage, error)
+	// PutMany upserts all values in one transaction: the batched flush
+	// for row-per-key data.
+	PutMany(ns string, values map[string]any) error
 	// Close releases backend resources.
 	Close() error
 }
@@ -78,6 +84,34 @@ func (m *Memory) Names(ns string) ([]string, error) {
 	names := slices.Collect(maps.Keys(m.data[ns]))
 	slices.Sort(names)
 	return names, nil
+}
+
+func (m *Memory) GetAll(ns string) (map[string]json.RawMessage, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	all := make(map[string]json.RawMessage, len(m.data[ns]))
+	for name, raw := range m.data[ns] {
+		all[name] = json.RawMessage(slices.Clone(raw))
+	}
+	return all, nil
+}
+
+func (m *Memory) PutMany(ns string, values map[string]any) error {
+	raws := make(map[string][]byte, len(values))
+	for name, v := range values {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		raws[name] = raw
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.data[ns] == nil {
+		m.data[ns] = make(map[string][]byte)
+	}
+	maps.Copy(m.data[ns], raws)
+	return nil
 }
 
 func (m *Memory) Close() error { return nil }

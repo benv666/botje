@@ -46,6 +46,8 @@ type Config struct {
 	Store    storage.Store
 	Modules  []module.Module
 	Dial     func() (net.Conn, error) // test hook; nil dials Addr
+	// SaveInterval is the saver flush cadence; 0 means one minute.
+	SaveInterval time.Duration
 
 	// Admin is the telnet control port. AdminListener wins over
 	// AdminAddr (tests); both empty means no admin port.
@@ -126,6 +128,7 @@ type core struct {
 	conn    *irc.Conn // nil while disconnected
 	session *irc.Session
 	backoff irc.Backoff
+	saver   *storage.Saver
 
 	// channels is the persisted autojoin set (storage core/channels).
 	// The flags only seed it on the very first boot; after that telnet
@@ -147,6 +150,9 @@ func Run(ctx context.Context, cfg Config) error {
 			reg.IncCounter("botje_storage_op_seconds_count", labels)
 		})
 	}
+	if cfg.SaveInterval == 0 {
+		cfg.SaveInterval = time.Minute
+	}
 	c := &core{
 		cfg:  cfg,
 		work: make(chan func(), 256),
@@ -155,6 +161,9 @@ func Run(ctx context.Context, cfg Config) error {
 		conf: conf.New(),
 		cmds: cmd.New(),
 	}
+	c.saver = storage.NewSaver(cfg.Store,
+		func(fn func()) { c.work <- fn },
+		func(err error) { slog.Error("core: saver", "err", err) })
 	for _, name := range ircEvents {
 		c.bus.RegisterEvent(name)
 	}
@@ -217,7 +226,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	mctx := &module.Context{
 		Bus: c.bus, Cmd: c.cmds, Pager: c.pager, Conf: c.conf,
-		Store: cfg.Store, Sched: c.sch, Fetch: fetcher,
+		Store: cfg.Store, Saver: c.saver, Sched: c.sch, Fetch: fetcher,
 		Privmsg:   c.privmsg,
 		SendRaw:   c.sendRaw,
 		InChannel: c.inChannel,
@@ -234,9 +243,22 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	c.startMetrics(ctx)
+
+	// the saver flush heartbeat; the final synchronous flush below
+	// catches whatever is dirty at shutdown
+	var flushLoop func()
+	flushLoop = func() {
+		c.saver.Flush()
+		c.sch.After(c.cfg.SaveInterval, flushLoop)
+	}
+	c.sch.After(c.cfg.SaveInterval, flushLoop)
+
 	c.connect()
 	c.loop(ctx)
 	c.shutdown()
+	if err := c.saver.FlushSync(); err != nil {
+		slog.Error("core: final saver flush", "err", err)
+	}
 	return nil
 }
 

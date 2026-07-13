@@ -1,7 +1,6 @@
 package markov
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,15 +14,16 @@ import (
 )
 
 type fixture struct {
-	m    *Module
-	b    *bus.Bus
-	cmds *cmd.Registry
-	cf   *conf.Conf
-	sch  *sched.Sched
-	clk  time.Time
-	sent []string
-	rand []float64
-	ri   int
+	m     *Module
+	b     *bus.Bus
+	cmds  *cmd.Registry
+	cf    *conf.Conf
+	sch   *sched.Sched
+	saver *storage.Saver
+	clk   time.Time
+	sent  []string
+	rand  []float64
+	ri    int
 }
 
 func newFixture(t *testing.T, store storage.Store) *fixture {
@@ -46,8 +46,12 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 		f.ri++
 		return v
 	}
+	f.saver = storage.NewSaver(store,
+		func(fn func()) { fn() }, // tests flush synchronously only
+		func(err error) { t.Errorf("saver: %v", err) })
 	err := f.m.Load(&module.Context{
 		Bus: f.b, Cmd: f.cmds, Conf: f.cf, Store: store, Sched: f.sch,
+		Saver:   f.saver,
 		Privmsg: func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) },
 	})
 	if err != nil {
@@ -214,13 +218,37 @@ func TestQueryTalk(t *testing.T) {
 	}
 }
 
-func TestPersistedEveryFiftyLines(t *testing.T) {
+// Learning marks the touched top words dirty in the saver; a flush
+// persists them as one row per word (the 2026-07-13 rewrite of the
+// whole-dictionary blob whose put froze the dispatcher for ~2s), and a
+// fresh module loads them back.
+func TestPersistPerWordViaSaver(t *testing.T) {
 	store := storage.NewMemory()
 	f := newFixture(t, store)
-	// the perl post-decrement saves on the 51st line
-	for i := range 51 {
-		f.msg("BenV", "#testing", fmt.Sprintf("zin nummer %d hier.", i))
+	f.msg("BenV", "#testing", "zin nummer een hier.")
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
 	}
+
+	names, err := store.Names("markov")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wordRows int
+	for _, n := range names {
+		if n == "dictionary_1_default" {
+			t.Fatal("whole-dictionary blob written; want per-word rows only")
+		}
+		if strings.HasPrefix(n, "dictionary_1_default:") {
+			wordRows++
+		}
+	}
+	// top-level words: zin nummer een hier (the closing dot is only
+	// ever a child, never a window head)
+	if wordRows != 4 {
+		t.Fatalf("word rows = %d (%v), want 4", wordRows, names)
+	}
+
 	f2 := newFixture(t, store)
 	f2.msg("BenV", "#testing", "!talk zin")
 	got := f2.take()
@@ -229,15 +257,59 @@ func TestPersistedEveryFiftyLines(t *testing.T) {
 	}
 }
 
-func TestUnloadSaves(t *testing.T) {
+// Marks survive a module unload: the core flushes the saver at
+// shutdown, after modules are gone.
+func TestMarksSurviveUnload(t *testing.T) {
 	store := storage.NewMemory()
 	f := newFixture(t, store)
 	f.msg("BenV", "#testing", "bewaar dit.")
 	f.m.Unload()
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
+	}
 	f2 := newFixture(t, store)
 	f2.msg("BenV", "#testing", "!talk bewaar")
 	if got := f2.take(); len(got) != 1 || got[0] != "#testing|Bewaar dit." {
 		t.Fatalf("restored talk = %q", got)
+	}
+}
+
+// A pre-rewrite store holds the whole dictionary as one blob; loading
+// splits it into per-word rows once and deletes the blob.
+func TestLegacyBlobMigration(t *testing.T) {
+	store := storage.NewMemory()
+	blob := map[string]*Node{
+		"aap":  {Count: 1, Children: map[string]*Node{"noot": {Count: 1, Children: map[string]*Node{"mies": {Count: 1}}}}},
+		"noot": {Count: 1, Children: map[string]*Node{"mies": {Count: 1, Children: map[string]*Node{".": {Count: 1}}}}},
+		"mies": {Count: 1, Children: map[string]*Node{".": {Count: 1}}},
+		".":    {Count: 1},
+	}
+	if err := store.Put("markov", "dictionary_1_default", blob); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFixture(t, store)
+	if ok, _ := store.Get("markov", "dictionary_1_default", new(map[string]*Node)); ok {
+		t.Fatal("legacy blob survived the migration")
+	}
+	// the blob lives on as a backup so a rolled-back build can be fed
+	if ok, _ := store.Get("markov", "dictionary_1_default_blob_backup", new(map[string]*Node)); !ok {
+		t.Fatal("no blob backup written")
+	}
+	var nd Node
+	if ok, _ := store.Get("markov", "dictionary_1_default:aap", &nd); !ok || nd.Children["noot"] == nil {
+		t.Fatalf("migrated row aap = %v %+v", ok, nd)
+	}
+	f.msg("BenV", "#testing", "!talk aap")
+	if got := f.take(); len(got) != 1 || got[0] != "#testing|Aap noot mies." {
+		t.Fatalf("talk from migrated dictionary = %q", got)
+	}
+
+	// a second boot must not re-migrate or lose anything
+	f2 := newFixture(t, store)
+	f2.msg("BenV", "#testing", "!talk aap")
+	if got := f2.take(); len(got) != 1 || got[0] != "#testing|Aap noot mies." {
+		t.Fatalf("talk on second boot = %q", got)
 	}
 }
 

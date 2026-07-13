@@ -23,6 +23,11 @@ type Context struct {
 	Pager *pager.Pager
 	Conf  *conf.Conf
 	Store storage.Store
+	// Saver batches hot writes: Mark (ns, name) dirty with a value
+	// func; the core flushes every minute and at shutdown. Use it
+	// instead of Store.Put when saving on every event would hammer the
+	// database (markov learns on every channel line).
+	Saver *storage.Saver
 	Sched *sched.Sched
 	Fetch *fetch.Fetcher
 	// Privmsg sends directly, bypassing the pager (the Perl
