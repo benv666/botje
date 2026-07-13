@@ -45,7 +45,9 @@ type harness struct {
 	done   chan error
 }
 
-func newHarness(t *testing.T, mods ...module.Module) *harness {
+// newHarnessRaw starts the core without confirming registration; use
+// newHarness unless the test is about pre-welcome behavior.
+func newHarnessRaw(t *testing.T, mods ...module.Module) *harness {
 	t.Helper()
 	client, server := net.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,13 +57,12 @@ func newHarness(t *testing.T, mods ...module.Module) *harness {
 	}
 	go func() {
 		h.done <- Run(ctx, Config{
-			Network:   "test",
-			Nick:      "Meretrix",
-			Channels:  []string{"#testing"},
-			Store:     storage.NewMemory(),
-			Modules:   mods,
-			Dial:      func() (net.Conn, error) { return client, nil },
-			JoinDelay: 10 * time.Millisecond,
+			Network:  "test",
+			Nick:     "Meretrix",
+			Channels: []string{"#testing"},
+			Store:    storage.NewMemory(),
+			Modules:  mods,
+			Dial:     func() (net.Conn, error) { return client, nil },
 		})
 	}()
 	t.Cleanup(func() {
@@ -74,6 +75,18 @@ func newHarness(t *testing.T, mods ...module.Module) *harness {
 		}
 	})
 	return h
+}
+
+func newHarness(t *testing.T, mods ...module.Module) *harness {
+	t.Helper()
+	h := newHarnessRaw(t, mods...)
+	h.welcome()
+	return h
+}
+
+// welcome confirms registration; the core joins channels on this.
+func (h *harness) welcome() {
+	h.send(":srv 001 Meretrix :Welcome to test")
 }
 
 // expect reads wire lines until one contains want (or fails).
@@ -162,7 +175,6 @@ func TestCoreAdminPort(t *testing.T) {
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: storage.NewMemory(), Auth: a, AdminListener: adminLn,
 			Dial:      func() (net.Conn, error) { return client, nil },
-			JoinDelay: 10 * time.Millisecond,
 		})
 	}()
 	t.Cleanup(func() {
@@ -221,13 +233,12 @@ func newHarnessStore(t *testing.T, store storage.Store, mods ...module.Module) *
 	}
 	go func() {
 		h.done <- Run(ctx, Config{
-			Network:   "test",
-			Nick:      "Meretrix",
-			Channels:  []string{"#testing"},
-			Store:     store,
-			Modules:   mods,
-			Dial:      func() (net.Conn, error) { return client, nil },
-			JoinDelay: 10 * time.Millisecond,
+			Network:  "test",
+			Nick:     "Meretrix",
+			Channels: []string{"#testing"},
+			Store:    store,
+			Modules:  mods,
+			Dial:     func() (net.Conn, error) { return client, nil },
 		})
 	}()
 	t.Cleanup(func() {
@@ -239,6 +250,7 @@ func newHarnessStore(t *testing.T, store storage.Store, mods ...module.Module) *
 			t.Error("core did not stop")
 		}
 	})
+	h.welcome()
 	return h
 }
 
@@ -316,7 +328,6 @@ func TestCoreConfPersistAcrossRuns(t *testing.T) {
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: store, Auth: a, AdminListener: adminLn,
 			Dial:      func() (net.Conn, error) { return client, nil },
-			JoinDelay: 10 * time.Millisecond,
 		})
 	}()
 	t.Cleanup(func() {
@@ -395,7 +406,6 @@ func TestCoreAdminJoinPart(t *testing.T) {
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: store, Auth: a, AdminListener: adminLn,
 			Dial:      func() (net.Conn, error) { return client, nil },
-			JoinDelay: 10 * time.Millisecond,
 		})
 	}()
 	t.Cleanup(func() {
@@ -405,6 +415,7 @@ func TestCoreAdminJoinPart(t *testing.T) {
 	})
 
 	wire := bufio.NewReader(server)
+	server.Write([]byte(":srv 001 Meretrix :Welcome to test\r\n"))
 	expectWire := func(want string) string {
 		t.Helper()
 		server.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -607,7 +618,6 @@ func TestCoreMetricsEndpoint(t *testing.T) {
 			Store: storage.NewMemory(), Modules: []module.Module{&echoModule{}, &broadcaster{}},
 			Metrics: reg, MetricsAddr: metricsLn.Addr().String(),
 			Dial:      func() (net.Conn, error) { return client, nil },
-			JoinDelay: 10 * time.Millisecond,
 		})
 	}()
 	t.Cleanup(func() { cancel(); server.Close(); <-done })
@@ -616,6 +626,7 @@ func TestCoreMetricsEndpoint(t *testing.T) {
 	metricsLn.Close()
 
 	r := bufio.NewReader(server)
+	server.Write([]byte(":srv 001 Meretrix :Welcome to test\r\n"))
 	// drive a command so a hook records a call
 	server.SetReadDeadline(time.Now().Add(10 * time.Second))
 	for {
@@ -697,11 +708,14 @@ func TestCorePreservesArtWhitespace(t *testing.T) {
 	}
 }
 
-// keeper-resume: the core sends JOIN but the ircd echoes nothing (the
-// live session is already in the channel). Output to that channel must
-// still go out, not get dropped by the un-joined-channel guard.
+// keeper-resume: the ircd rejects the re-registration with 462 (no 001
+// ever comes) and echoes no JOIN (the live session is already in the
+// channel). The core must join on the 462 and output to that channel
+// must still go out, not get dropped by the un-joined-channel guard.
 func TestCoreResumeNoJoinEchoStillSends(t *testing.T) {
-	h := newHarness(t, &broadcaster{})
+	h := newHarnessRaw(t, &broadcaster{})
+	h.expect("USER ")
+	h.send(":srv 462 Meretrix :You may not reregister")
 	h.expect("JOIN #testing") // core sends JOIN...
 	// ...but we deliberately send NO ":Meretrix JOIN #testing" echo,
 	// mimicking a resume under the keeper
@@ -710,4 +724,53 @@ func TestCoreResumeNoJoinEchoStillSends(t *testing.T) {
 	if got := h.expect("PRIVMSG #"); got != "PRIVMSG #testing :this one goes" {
 		t.Fatalf("resume send = %q, want the #testing message through", got)
 	}
+}
+
+// The 2026-07-13 lost-joins bug: the core JOINed on a timer, so a core
+// attached to a keeper whose IRC side was still down queued JOINs
+// behind NICK/USER; the whole burst flushed on reconnect and the ircd
+// answered the pipelined JOINs with ERR_NOTREGISTERED (registration
+// completes asynchronously), silently eating them. JOIN must wait for
+// the server to confirm registration.
+func TestCoreJoinWaitsForWelcome(t *testing.T) {
+	h := newHarnessRaw(t)
+	h.expect("NICK Meretrix")
+	h.expect("USER ")
+	// no welcome yet: nothing further may hit the wire
+	h.server.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if line, err := h.r.ReadString('\n'); err == nil {
+		t.Fatalf("wire got %q before the welcome", line)
+	}
+	h.welcome()
+	h.expect("JOIN #testing")
+}
+
+// querier fires a query (nick target) on any NOTICE, so a test can
+// trigger it with the pre-registration "*** Looking up your hostname"
+// notice a real ircd sends.
+type querier struct{}
+
+func (querier) Name() string { return "querier" }
+func (querier) Load(ctx *module.Context) error {
+	return ctx.Bus.RegisterHook("querier", "IRC_NOTICE", func(ev *bus.Event) (bus.Handled, any) {
+		ctx.Privmsg("BenV", "too early")
+		return bus.None, nil
+	})
+}
+func (querier) Unload() error { return nil }
+
+// Queries sent before the welcome are dropped, not queued: the server
+// would eat them with ERR_NOTREGISTERED anyway, after they burn flood
+// budget and keeper buffer.
+func TestCorePrivmsgDroppedBeforeWelcome(t *testing.T) {
+	h := newHarnessRaw(t, &querier{})
+	h.expect("NICK Meretrix")
+	h.expect("USER ")
+	h.send(":srv NOTICE * :*** Looking up your hostname...")
+	h.server.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if line, err := h.r.ReadString('\n'); err == nil {
+		t.Fatalf("wire got %q before the welcome", line)
+	}
+	h.welcome()
+	h.expect("JOIN #testing") // and the dropped query never shows up
 }

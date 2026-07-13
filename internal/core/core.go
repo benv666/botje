@@ -41,11 +41,10 @@ type Config struct {
 	// keeper the keeper presents it)
 	CertFile, KeyFile string
 	Nick              string
-	Channels  []string
-	Store     storage.Store
-	Modules   []module.Module
-	Dial      func() (net.Conn, error) // test hook; nil dials Addr
-	JoinDelay time.Duration            // 0 means the Perl 10s
+	Channels []string
+	Store    storage.Store
+	Modules  []module.Module
+	Dial     func() (net.Conn, error) // test hook; nil dials Addr
 
 	// Admin is the telnet control port. AdminListener wins over
 	// AdminAddr (tests); both empty means no admin port.
@@ -137,9 +136,6 @@ type core struct {
 // with backoff on connection loss. It returns after the goodbye QUIT
 // has been flushed.
 func Run(ctx context.Context, cfg Config) error {
-	if cfg.JoinDelay == 0 {
-		cfg.JoinDelay = 10 * time.Second
-	}
 	c := &core{
 		cfg:  cfg,
 		work: make(chan func(), 256),
@@ -524,12 +520,16 @@ func (c *core) connect() {
 	}
 	c.conn, c.session = conn, sess
 
-	sess.Register()
-	c.sch.After(c.cfg.JoinDelay, func() {
+	// join when the server confirms registration (001, or 462 on a
+	// keeper-resume), never on a timer: a JOIN sent before the server
+	// registers us dies with ERR_NOTREGISTERED (2026-07-13, JOINs
+	// queued in the keeper flushed ahead of registration completing)
+	sess.Welcome = func() {
 		if c.session == sess { // still this connection
 			sess.JoinChannels(c.channels)
 		}
-	})
+	}
+	sess.Register()
 }
 
 func (c *core) disconnected(err error) {
@@ -554,7 +554,10 @@ func (c *core) scheduleReconnect() {
 // receiver, split the message on newlines, wrap long lines at the wire
 // budget, and queue everything through flood control.
 func (c *core) privmsg(receiver, msg string) {
-	if c.conn == nil {
+	// nothing goes out before the server confirms registration: the
+	// ircd would eat it with ERR_NOTREGISTERED after it burned flood
+	// budget (and keeper buffer, when the IRC side is down)
+	if c.conn == nil || c.session == nil || !c.session.Welcomed() {
 		return
 	}
 	receiver = strings.Map(func(r rune) rune {

@@ -32,9 +32,16 @@ type Session struct {
 	UserName string
 	RealName string
 
-	network string
-	nick    string
-	now     func() time.Time
+	// Welcome fires once when the server confirms registration: 001 on
+	// a fresh connection, or 462 when a restarted core re-registers
+	// over a keeper's live session (the ircd rejects the second USER,
+	// which proves we are already in). The owner joins channels here.
+	Welcome func()
+
+	network  string
+	nick     string
+	now      func() time.Time
+	welcomed bool
 
 	channels map[string]*channelState
 	mode     string
@@ -56,6 +63,9 @@ func NewSession(network, nick string, now func() time.Time) *Session {
 		channels: make(map[string]*channelState),
 	}
 }
+
+// Welcomed reports whether the server has confirmed registration.
+func (s *Session) Welcomed() bool { return s.welcomed }
 
 // Register sends the NICK/USER registration.
 func (s *Session) Register() {
@@ -143,6 +153,17 @@ func (s *Session) HandleLine(raw string) {
 		s.nick += "_"
 		slog.Warn("irc: nick in use, retrying", "network", s.network, "nick", s.nick)
 		s.Send("NICK " + s.nick)
+	case "RPL_WELCOME", "ERR_ALREADYREGISTRED":
+		// registration confirmed; joining is anchored here, not on a
+		// timer: a JOIN sent before the server confirms registration
+		// dies with ERR_NOTREGISTERED (2026-07-13: pre-welcome JOINs
+		// buffered in the keeper were silently eaten that way)
+		if !s.welcomed {
+			s.welcomed = true
+			if s.Welcome != nil {
+				s.Welcome()
+			}
+		}
 	case "RPL_MOTDSTART":
 		s.motd.Reset()
 	case "RPL_MOTD":

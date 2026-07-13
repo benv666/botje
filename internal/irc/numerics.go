@@ -4,6 +4,9 @@ package irc
 // %irccodes table (RFC 1459 set; the trailing space on ERR_NOSUCHNICK
 // in the Perl is fixed, the unused reserved-codes table is dropped).
 var numerics = map[string]string{
+	// 001 is missing from the Perl table (it never tracked registration
+	// state); added for the welcome-anchored channel join
+	"001": "RPL_WELCOME",
 	"200": "RPL_TRACELINK",
 	"201": "RPL_TRACECONNECTING",
 	"202": "RPL_TRACEHANDSHAKE",
