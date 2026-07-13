@@ -369,15 +369,20 @@ func (s *Session) Mode() string { return s.mode }
 func (s *Session) Motd() string { return s.motd.String() }
 
 // Backoff computes reconnect delays: 3, 60, 180, 300 seconds,
-// escalating per attempt, resetting after more than 300s since the
-// last schedule. Divergence from Perl: repeated fast failures stay at
-// 300s (the Perl fell off the list and never reconnected again).
+// escalating per attempt, resetting after more than 300s of peace
+// beyond the scheduled attempt. Divergence from Perl: repeated fast
+// failures stay at 300s (the Perl fell off the list and never
+// reconnected again).
 type Backoff struct {
 	delay time.Duration
-	when  time.Time
+	when  time.Time // when the scheduled attempt happens (call time + delay)
 }
 
 // Next returns the delay to wait before the next reconnect attempt.
+// The caller is assumed to sleep the returned delay before attempting,
+// so the quiet-period reset measures from the end of that sleep: a
+// 300s sleep by itself must not reset the ladder (it did before
+// 2026-07-13, hammering a connectban'd ircd at 3s again).
 func (b *Backoff) Next(now time.Time) time.Duration {
 	if !b.when.IsZero() && b.when.Add(300*time.Second).Before(now) {
 		b.delay = 0 // last attempt long ago, start over
@@ -385,10 +390,10 @@ func (b *Backoff) Next(now time.Time) time.Duration {
 	for _, d := range []time.Duration{3 * time.Second, 60 * time.Second, 180 * time.Second, 300 * time.Second} {
 		if d > b.delay {
 			b.delay = d
-			b.when = now
+			b.when = now.Add(d)
 			return d
 		}
 	}
-	b.when = now
+	b.when = now.Add(300 * time.Second)
 	return 300 * time.Second
 }
