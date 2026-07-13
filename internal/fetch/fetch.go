@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"sync"
 	"time"
 )
@@ -54,6 +55,13 @@ type Result struct {
 type Fetcher struct {
 	deliver func(fn func())
 
+	// Observe, when set, is called after every request with the target
+	// host, the request duration in seconds, and whether it errored.
+	// Called from the fetch goroutine before the callback is delivered:
+	// must be goroutine-safe. Set it before the first Fetch. Metrics
+	// food.
+	Observe func(host string, seconds float64, isErr bool)
+
 	mu       sync.Mutex
 	inFlight map[string]bool
 }
@@ -76,13 +84,26 @@ func (f *Fetcher) Fetch(url string, opts Options, cb func(Result)) bool {
 	f.mu.Unlock()
 
 	go func() {
+		start := time.Now()
 		res := f.do(url, opts)
+		if f.Observe != nil {
+			f.Observe(hostOf(url), time.Since(start).Seconds(), res.Err != nil)
+		}
 		f.mu.Lock()
 		delete(f.inFlight, url)
 		f.mu.Unlock()
 		f.deliver(func() { cb(res) })
 	}()
 	return true
+}
+
+// hostOf extracts the host:port for the Observe label; bad URLs (which
+// fail in do anyway) collapse into one bucket.
+func hostOf(rawURL string) string {
+	if u, err := neturl.Parse(rawURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return "invalid"
 }
 
 func (f *Fetcher) do(url string, opts Options) Result {

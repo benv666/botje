@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -136,6 +137,16 @@ type core struct {
 // with backoff on connection loss. It returns after the goodbye QUIT
 // has been flushed.
 func Run(ctx context.Context, cfg Config) error {
+	if cfg.Metrics != nil {
+		// every storage operation (core and modules alike) reports its
+		// latency; this is the evidence for the markov blob decision
+		reg := cfg.Metrics
+		cfg.Store = storage.Instrument(cfg.Store, func(op, ns string, seconds float64) {
+			labels := map[string]string{"op": op, "ns": ns}
+			reg.AddCounter("botje_storage_op_seconds_sum", labels, seconds)
+			reg.IncCounter("botje_storage_op_seconds_count", labels)
+		})
+	}
 	c := &core{
 		cfg:  cfg,
 		work: make(chan func(), 256),
@@ -193,6 +204,17 @@ func Run(ctx context.Context, cfg Config) error {
 	})
 
 	fetcher := fetch.New(func(fn func()) { c.work <- fn })
+	if cfg.Metrics != nil {
+		reg := cfg.Metrics
+		fetcher.Observe = func(host string, seconds float64, isErr bool) {
+			labels := map[string]string{"host": host}
+			reg.AddCounter("botje_fetch_duration_seconds_sum", labels, seconds)
+			reg.IncCounter("botje_fetch_duration_seconds_count", labels)
+			if isErr {
+				reg.IncCounter("botje_fetch_errors_total", labels)
+			}
+		}
+	}
 	mctx := &module.Context{
 		Bus: c.bus, Cmd: c.cmds, Pager: c.pager, Conf: c.conf,
 		Store: cfg.Store, Sched: c.sch, Fetch: fetcher,
@@ -427,6 +449,7 @@ func (c *core) startMetrics(ctx context.Context) {
 	if reg == nil {
 		return
 	}
+	seenQueues := map[string]bool{} // zero out buckets that drained away
 	reg.AddCollector(func() {
 		for id, cs := range c.bus.Stats() {
 			labels := map[string]string{"module": id.Module, "event": id.Event}
@@ -439,6 +462,31 @@ func (c *core) startMetrics(ctx context.Context) {
 		}
 		reg.SetGauge("botje_connected", nil, connected)
 		reg.SetGauge("botje_modules", nil, float64(len(c.bus.Modules())))
+
+		// runtime memory + scheduler pressure (backlog item 3a)
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		reg.SetGauge("go_goroutines", nil, float64(runtime.NumGoroutine()))
+		reg.SetGauge("go_memstats_heap_alloc_bytes", nil, float64(m.HeapAlloc))
+		reg.SetGauge("go_memstats_heap_sys_bytes", nil, float64(m.HeapSys))
+		reg.SetGauge("go_memstats_sys_bytes", nil, float64(m.Sys))
+		reg.SetCounter("go_gc_cycles_total", nil, float64(m.NumGC))
+		reg.SetCounter("go_gc_pause_seconds_total", nil, time.Duration(m.PauseTotalNs).Seconds())
+		reg.SetGauge("botje_work_backlog", nil, float64(len(c.work)))
+
+		depths := map[string]int{}
+		if conn := c.conn; conn != nil {
+			depths = conn.QueueDepths()
+		}
+		for ch := range seenQueues {
+			if _, live := depths[ch]; !live {
+				reg.SetGauge("botje_flood_queue_depth", map[string]string{"channel": ch}, 0)
+			}
+		}
+		for ch, n := range depths {
+			seenQueues[ch] = true
+			reg.SetGauge("botje_flood_queue_depth", map[string]string{"channel": ch}, float64(n))
+		}
 	})
 	if c.cfg.MetricsAddr == "" {
 		return

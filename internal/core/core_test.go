@@ -672,6 +672,22 @@ func TestCoreMetricsEndpoint(t *testing.T) {
 	if !strings.Contains(body, `botje_hook_calls_total{event="IRC_PRIVMSG",module="broadcaster"}`) {
 		t.Errorf("no hook call counter:\n%s", body)
 	}
+	// runtime memory + dispatcher backlog gauges (backlog item 3a)
+	for _, want := range []string{
+		"go_goroutines ",
+		"go_memstats_heap_alloc_bytes ",
+		"go_gc_cycles_total ",
+		"botje_work_backlog ",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q:\n%s", want, body)
+		}
+	}
+	// the boot-time channel seeding did storage puts through the
+	// instrumented store
+	if !strings.Contains(body, `botje_storage_op_seconds_count{ns="core",op="put"}`) {
+		t.Errorf("no storage op latency series:\n%s", body)
+	}
 }
 
 // multi-line output keeps intentional leading whitespace on every line

@@ -89,6 +89,14 @@ func (c *Conn) WriteHigh(line string) {
 	c.kick()
 }
 
+// QueueDepths reports the flood queue depth per bucket (channel or the
+// generic bucket). Safe from any goroutine; metrics food.
+func (c *Conn) QueueDepths() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.queue.Depths()
+}
+
 // prepare is the Perl writeServer transform, minus CRLF (added at wire
 // time).
 func prepare(line string) string {

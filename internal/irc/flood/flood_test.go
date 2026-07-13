@@ -185,3 +185,34 @@ func TestLen(t *testing.T) {
 		t.Fatalf("Len after send = %d, want 2", got)
 	}
 }
+
+func TestDepths(t *testing.T) {
+	clk := newFakeClock()
+	q := New(clk.now)
+	q.Push("PRIVMSG #a :x")
+	q.Push("PRIVMSG #a :y")
+	q.Push("PRIVMSG #b :z")
+	q.Push("MODE #a +b") // generic bucket
+	q.PushHigh("PONG :s")
+	d := q.Depths()
+	if d["#a"] != 2 || d["#b"] != 1 || d[genericBucket] != 1 {
+		t.Fatalf("Depths = %v", d)
+	}
+	q.Next() // high line goes first, buckets untouched
+	if total := sumDepths(q.Depths()); total != 4 {
+		t.Fatalf("Depths after high send sum to %d, want 4", total)
+	}
+	clk.advance(2 * time.Second)
+	q.Next() // one round-robin bucket pick
+	if total := sumDepths(q.Depths()); total != 3 {
+		t.Fatalf("Depths after bucket send sum to %d, want 3", total)
+	}
+}
+
+func sumDepths(d map[string]int) int {
+	n := 0
+	for _, v := range d {
+		n += v
+	}
+	return n
+}

@@ -122,3 +122,39 @@ func TestMemoryConformance(t *testing.T) {
 		return NewMemory()
 	})
 }
+
+func TestInstrument(t *testing.T) {
+	type call struct {
+		op, ns string
+	}
+	var calls []call
+	s := Instrument(NewMemory(), func(op, ns string, seconds float64) {
+		if seconds < 0 {
+			t.Fatalf("negative duration for %s/%s", op, ns)
+		}
+		calls = append(calls, call{op, ns})
+	})
+
+	if err := s.Put("karma", "x", 1); err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	if ok, err := s.Get("karma", "x", &v); !ok || err != nil || v != 1 {
+		t.Fatalf("instrumented Get = %v %v %d, passthrough broken", ok, err, v)
+	}
+	if _, err := s.Names("karma"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete("karma", "x"); err != nil {
+		t.Fatal(err)
+	}
+	want := []call{{"put", "karma"}, {"get", "karma"}, {"names", "karma"}, {"delete", "karma"}}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Fatalf("call %d = %v, want %v", i, calls[i], want[i])
+		}
+	}
+}
