@@ -224,6 +224,10 @@ func TestCoreGracefulQuit(t *testing.T) {
 // newHarnessStore is newHarness with a caller-owned store, for
 // persistence tests that span two runs.
 func newHarnessStore(t *testing.T, store storage.Store, mods ...module.Module) *harness {
+	return newHarnessStoreInterval(t, store, 20*time.Millisecond, mods...)
+}
+
+func newHarnessStoreInterval(t *testing.T, store storage.Store, saveInterval time.Duration, mods ...module.Module) *harness {
 	t.Helper()
 	client, server := net.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -233,12 +237,13 @@ func newHarnessStore(t *testing.T, store storage.Store, mods ...module.Module) *
 	}
 	go func() {
 		h.done <- Run(ctx, Config{
-			Network:  "test",
-			Nick:     "Meretrix",
-			Channels: []string{"#testing"},
-			Store:    store,
-			Modules:  mods,
-			Dial:     func() (net.Conn, error) { return client, nil },
+			Network:      "test",
+			Nick:         "Meretrix",
+			Channels:     []string{"#testing"},
+			Store:        store,
+			Modules:      mods,
+			Dial:         func() (net.Conn, error) { return client, nil },
+			SaveInterval: saveInterval,
 		})
 	}()
 	t.Cleanup(func() {
@@ -252,6 +257,51 @@ func newHarnessStore(t *testing.T, store storage.Store, mods ...module.Module) *
 	})
 	h.welcome()
 	return h
+}
+
+// saverModule marks a value through the shared Saver at load time.
+type saverModule struct{}
+
+func (saverModule) Name() string { return "saverm" }
+func (saverModule) Load(ctx *module.Context) error {
+	ctx.Saver.Mark("saverm", "k", func() any { return 42 })
+	return nil
+}
+func (saverModule) Unload() error { return nil }
+
+// the core flushes the saver on its cadence...
+func TestCoreSaverFlushCadence(t *testing.T) {
+	store := storage.NewMemory()
+	newHarnessStore(t, store, saverModule{})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var v int
+		if ok, _ := store.Get("saverm", "k", &v); ok && v == 42 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("saver mark never flushed on the cadence")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// ...and once more, synchronously, at shutdown (the default cadence is
+// a minute, so only the shutdown flush can have written this).
+func TestCoreSaverFlushOnShutdown(t *testing.T) {
+	store := storage.NewMemory()
+	h := newHarnessStoreInterval(t, store, time.Minute, saverModule{})
+	h.cancel()
+	select {
+	case err := <-h.done:
+		h.done <- err // the harness cleanup waits on this too
+	case <-time.After(5 * time.Second):
+		t.Fatal("core did not stop")
+	}
+	var v int
+	if ok, _ := store.Get("saverm", "k", &v); !ok || v != 42 {
+		t.Fatalf("saverm/k = %v %d after shutdown", ok, v)
+	}
 }
 
 // first boot seeds the channel set from the flags; a stored set from a

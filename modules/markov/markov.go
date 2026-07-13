@@ -4,16 +4,26 @@
 // same as the Perl), "talk" in query, and an optional idle talker.
 // Ported from IRC_Markov.pm.
 //
-// The dictionary lives in memory and persists as one blob per
-// (order, name) pair under namespace "markov", saved every 51st
-// learned line (the Perl post-decrement) and on unload, like the Perl
-// did with its 29 MB Storable. Divergence: sanitizeWord handles
-// contractions deliberately (the Perl matched them against $_ by
-// accident) and keeps the apostrophe.
+// The dictionary lives in memory and persists as one row per top-level
+// word under namespace "markov" (name "dictionary_<order>_<dict>:<word>"),
+// loaded in bulk at boot and saved through the shared Saver: learning
+// marks only the words a line touched, the core flushes every minute.
+// This replaces the pre-2026-07-13 whole-dictionary blob whose put
+// rewrote ~8 MB synchronously on the dispatcher every 51st learned
+// line (the Perl saved that way too, but to a local Storable file). A
+// legacy blob is split into rows once at load. Known trade-off: an
+// admin unload+reload mid-run can lose marks that have not flushed yet
+// (< 1 minute of chatter); the Perl lost everything since its last
+// 51-line save on a crash.
+//
+// Divergence: sanitizeWord handles contractions deliberately (the Perl
+// matched them against $_ by accident) and keeps the apostrophe.
 package markov
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"regexp"
 	"slices"
@@ -26,8 +36,6 @@ import (
 	"go-botje/internal/module"
 	"go-botje/internal/sched"
 )
-
-const linesBetweenStores = 50
 
 // node is one chain link: how often this word followed the path here,
 // and what followed it.
@@ -67,8 +75,7 @@ type Module struct {
 	order      int
 	dictionary string
 	chains     map[string]*Node
-	keys       []string // top-level key cache for random picks
-	linesLeft  int
+	keys       []string              // top-level key cache for random picks
 	idle       map[string]*idleState // per channel
 }
 
@@ -101,12 +108,10 @@ func (m *Module) Load(ctx *module.Context) error {
 
 	m.order = ctx.Conf.Int("markov_order")
 	m.dictionary = strings.ToLower(strings.TrimSpace(ctx.Conf.String("markov_dictionary")))
-	m.linesLeft = linesBetweenStores
 	m.idle = make(map[string]*idleState)
 
-	m.chains = make(map[string]*Node)
-	if _, err := ctx.Store.Get(m.Name(), m.storeKey(), &m.chains); err != nil {
-		return fmt.Errorf("markov: load dictionary: %w", err)
+	if err := m.loadDictionary(); err != nil {
+		return err
 	}
 	m.keys = make([]string, 0, len(m.chains))
 	for w := range m.chains {
@@ -130,15 +135,71 @@ func (m *Module) Unload() error {
 	}
 	m.ctx.Bus.UnregisterModule(m.Name())
 	m.ctx.Cmd.UnregisterModule(m.Name())
-	return m.save()
+	// pending saver marks survive unload and flush on the core cadence
+	return nil
 }
 
 func (m *Module) storeKey() string {
 	return fmt.Sprintf("dictionary_%d_%s", m.order, m.dictionary)
 }
 
-func (m *Module) save() error {
-	return m.ctx.Store.Put(m.Name(), m.storeKey(), m.chains)
+// loadDictionary bulk-loads the per-word rows, migrating a legacy
+// whole-dictionary blob into rows once (the blob wins over any rows
+// from a previously interrupted migration; the delete only happens
+// after all rows landed, so a crash mid-migration is retried).
+func (m *Module) loadDictionary() error {
+	m.chains = make(map[string]*Node)
+	all, err := m.ctx.Store.GetAll(m.Name())
+	if err != nil {
+		return fmt.Errorf("markov: load dictionary: %w", err)
+	}
+	prefix := m.storeKey() + ":"
+	for name, raw := range all {
+		w, ok := strings.CutPrefix(name, prefix)
+		if !ok {
+			continue
+		}
+		nd := &Node{}
+		if err := json.Unmarshal(raw, nd); err != nil {
+			return fmt.Errorf("markov: load word %q: %w", w, err)
+		}
+		m.chains[w] = nd
+	}
+	raw, isLegacy := all[m.storeKey()]
+	if !isLegacy {
+		return nil
+	}
+	legacy := make(map[string]*Node)
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return fmt.Errorf("markov: parse legacy dictionary: %w", err)
+	}
+	m.chains = legacy
+	batch := make(map[string]any, len(legacy))
+	for w, nd := range legacy {
+		batch[prefix+w] = nd
+	}
+	if err := m.ctx.Store.PutMany(m.Name(), batch); err != nil {
+		return fmt.Errorf("markov: migrate dictionary to rows: %w", err)
+	}
+	// keep the blob under a backup name instead of deleting it: a
+	// rolled-back pre-rows build would otherwise boot with an empty
+	// dictionary (it can be renamed back by hand)
+	if err := m.ctx.Store.Put(m.Name(), m.storeKey()+"_blob_backup", json.RawMessage(raw)); err != nil {
+		return fmt.Errorf("markov: back up legacy dictionary: %w", err)
+	}
+	if err := m.ctx.Store.Delete(m.Name(), m.storeKey()); err != nil {
+		return fmt.Errorf("markov: drop legacy dictionary: %w", err)
+	}
+	slog.Info("markov: migrated dictionary blob to per-word rows", "words", len(legacy))
+	return nil
+}
+
+// markDirty queues the word's subtree for the next saver flush. The
+// node pointer is stable (words are never deleted), so the flush
+// serializes whatever the counts are by then.
+func (m *Module) markDirty(w string) {
+	nd := m.chains[w]
+	m.ctx.Saver.Mark(m.Name(), m.storeKey()+":"+w, func() any { return nd })
 }
 
 func (m *Module) cbTalk(d *cmd.Data) bool {
@@ -211,11 +272,6 @@ func (m *Module) addLine(msg string) {
 		}
 	}
 
-	m.linesLeft--
-	if m.linesLeft < 0 {
-		m.save()
-		m.linesLeft = linesBetweenStores
-	}
 }
 
 // addWords bumps the chain counts along one window of order+1 words.
@@ -230,6 +286,7 @@ func (m *Module) addWords(words []string) {
 				slices.Sort(m.keys)
 			}
 			nd = m.chains[w]
+			m.markDirty(w)
 		} else {
 			if nd.Children == nil {
 				nd.Children = make(map[string]*Node)

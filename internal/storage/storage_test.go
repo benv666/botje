@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 )
@@ -42,6 +43,56 @@ func conformance(t *testing.T, open func(t *testing.T) Store) {
 		}
 		if out["beer"].Score != 42 || out["unicode"].Tags[2] != "🍺" {
 			t.Fatalf("round-trip mangled data: %+v", out)
+		}
+	})
+
+	t.Run("PutManyGetAll", func(t *testing.T) {
+		s := open(t)
+		batch := map[string]any{
+			"w:beer": map[string]int{"c": 3},
+			"w:kaas": map[string]int{"c": 1},
+		}
+		if err := s.PutMany("markov", batch); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Put("other", "unrelated", 1); err != nil {
+			t.Fatal(err)
+		}
+		all, err := s.GetAll("markov")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) != 2 {
+			t.Fatalf("GetAll = %d entries, want 2 (namespaces leaked?)", len(all))
+		}
+		var n map[string]int
+		if err := json.Unmarshal(all["w:beer"], &n); err != nil || n["c"] != 3 {
+			t.Fatalf("GetAll[w:beer] = %s (%v)", all["w:beer"], err)
+		}
+		// PutMany upserts: overwrite one, add one
+		if err := s.PutMany("markov", map[string]any{
+			"w:beer": map[string]int{"c": 4},
+			"w:bier": map[string]int{"c": 9},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		all, err = s.GetAll("markov")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(all["w:beer"], &n); err != nil || n["c"] != 4 || len(all) != 3 {
+			t.Fatalf("after upsert: %d entries, w:beer=%s", len(all), all["w:beer"])
+		}
+	})
+
+	t.Run("GetAllEmpty", func(t *testing.T) {
+		s := open(t)
+		all, err := s.GetAll("void")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) != 0 {
+			t.Fatalf("GetAll of empty ns = %v", all)
 		}
 	})
 

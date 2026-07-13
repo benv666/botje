@@ -106,6 +106,41 @@ func (p *Postgres) Delete(ns, name string) error {
 	return err
 }
 
+func (p *Postgres) GetAll(ns string) (map[string]json.RawMessage, error) {
+	rows, err := p.pool.Query(context.Background(),
+		`SELECT name, value FROM kv WHERE namespace = $1`, ns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	all := make(map[string]json.RawMessage)
+	for rows.Next() {
+		var name string
+		var raw []byte
+		if err := rows.Scan(&name, &raw); err != nil {
+			return nil, err
+		}
+		all[name] = json.RawMessage(raw)
+	}
+	return all, rows.Err()
+}
+
+func (p *Postgres) PutMany(ns string, values map[string]any) error {
+	batch := &pgx.Batch{}
+	for name, v := range values {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		batch.Queue(
+			`INSERT INTO kv (namespace, name, value) VALUES ($1, $2, $3)
+			 ON CONFLICT (namespace, name) DO UPDATE SET value = $3, updated_at = now()`,
+			ns, name, raw)
+	}
+	// SendBatch wraps the queued statements in one implicit transaction
+	return p.pool.SendBatch(context.Background(), batch).Close()
+}
+
 func (p *Postgres) Names(ns string) ([]string, error) {
 	rows, err := p.pool.Query(context.Background(),
 		`SELECT name FROM kv WHERE namespace = $1 ORDER BY name`, ns)

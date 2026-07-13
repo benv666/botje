@@ -1,6 +1,9 @@
 package storage
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Instrument wraps a Store and reports every operation's duration to
 // observe (op is get/put/delete/names; Close is not measured). Metrics
@@ -38,6 +41,16 @@ func (i *instrumented) Delete(ns, name string) error {
 func (i *instrumented) Names(ns string) ([]string, error) {
 	defer i.time("names", ns)()
 	return i.s.Names(ns)
+}
+
+func (i *instrumented) GetAll(ns string) (map[string]json.RawMessage, error) {
+	defer i.time("getall", ns)()
+	return i.s.GetAll(ns)
+}
+
+func (i *instrumented) PutMany(ns string, values map[string]any) error {
+	defer i.time("putmany", ns)()
+	return i.s.PutMany(ns, values)
 }
 
 func (i *instrumented) Close() error { return i.s.Close() }
