@@ -355,6 +355,22 @@ func TestBackoffAfterConnectionLoss(t *testing.T) {
 	irc.accept(t)
 }
 
+// Shutdown can race a reconnect: when closeConns runs between a
+// successful dial and setIRC, the fresh connection used to be
+// installed with nobody left to close it, and the keeper hung in
+// pumpIRC until the read watchdog (flaked 1/40 under suite load).
+// After shutdown, setIRC must close whatever arrives.
+func TestSetIRCAfterShutdownClosesConn(t *testing.T) {
+	k := &keeper{cfg: Config{ReadTimeout: time.Minute}}
+	k.closeConns() // shutdown already happened
+	c1, c2 := net.Pipe()
+	k.setIRC(c1)
+	c2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := c2.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("connection installed after shutdown was not closed (err=%v)", err)
+	}
+}
+
 // A connection that goes silent is dead (NAT drop, hard hang): servers
 // ping every couple of minutes, so a long inbound silence means the
 // keeper must give up on the socket and reconnect.
