@@ -178,6 +178,7 @@ Import > paste the JSON, pick your prometheus datasource).
 | urband | `!ud <term>` via RapidAPI Urban Dictionary; needs `conf urband_rapidapi_key=...` |
 | weather | `!weer [plaats]`, `!weer full [plaats]`, `!regen [plaats]`, `!weeralarm` (code geel/oranje/rood). See [Weather](#weather-weer-regen-weeralarm) below |
 | wolframalpha | `!wa <query>`; needs `conf wolframalpha_appid=...` |
+| rvf | Rad van Fortuin: `!start [nick1,nick2,...]`, `!stop`, `!top10`. See [Rad van Fortuin](#rad-van-fortuin-start) below |
 | remind | `!remind <min> <hour> <day> <mon> <dow> <msg>` (cron, day/month names ok), `!remind show\|clear <ids>`; `!remember <name> <val>` / `!recall <name> [n]` / `!forget <name>` notepad (last 3 per name) |
 | llm | `!gpt <q>` (OpenAI), `!claude [model] <q>` (Bedrock), `!oi [model] <q>` (Ollama); per-channel history; keys in `conf llm_openai_key` / `llm_aws_key`+`llm_aws_secret` / `llm_ollama_url` |
 | core | `!more [command]` pages long replies |
@@ -221,6 +222,36 @@ Configure over telnet (`conf <name>=<value>`):
 New warnings are broadcast once (deduplicated by CAP identifier, and
 that memory survives restarts), so a code oranje does not repeat every
 poll.
+
+## Rad van Fortuin (`!start`)
+
+The 1990 RTL4 game, with the bot as gamekeeper: the documented
+24-segment wheel (guilder amounts 50-1000, bankroet, verliesbeurt, and
+a joker that saves your turn once), consonants pay per occurrence,
+vowels cost fl. 250 from your round money, and an absent vowel costs
+the turn too.
+
+`!start nick1,nick2,...` starts a multiplayer game in the channel
+(bare `!start` plays solo, also in a query). The current player says:
+
+| move | nl | en |
+|---|---|---|
+| spin the wheel | `draai` | `spin` |
+| call a consonant (after a money spin) | `t` | `t` |
+| buy a vowel | `koop e` | `buy e` |
+| solve | `los op <zin>` | `solve <phrase>` |
+| give up the turn | `pas` | `pass` |
+
+Turns time out (`conf rvf_turn_seconds`, default 90); three consecutive
+timeouts abort the game and reveal the answer. The solver banks their
+round money and enters the persistent `!top10` (nick/channel/score).
+
+Channels listed in `conf rvf_channels_en` (default `#wheeloffortune`)
+play in english with dollar amounts; everywhere else is dutch. The
+puzzle corpus ships in the binary (dutch spreekwoorden, uitdrukkingen
+and show categories; english phrases and Wheel of Fortune categories)
+and grows over telnet: `rvf add <nl|en> <Category>: <puzzle>`,
+`rvf del`, `rvf list` (su). Games survive restarts.
 
 ## Data migration (Perl Storable -> go-botje)
 
