@@ -43,14 +43,14 @@ func newFixture(t *testing.T, st storage.Store) *fixture {
 
 func (f *fixture) event(name, nick, user, host, channel string) {
 	ev := &bus.Event{Name: name, Server: "junerules", Channel: channel,
-		Msg: "hoi", Extra: map[string]any{}}
+		Msg: "hoi"}
 	ev.Sender.Nick, ev.Sender.User, ev.Sender.Host = nick, user, host
 	f.b.Submit(ev)
 }
 
 func (f *fixture) guardCmd(t *testing.T, args string) string {
 	t.Helper()
-	for _, payload := range f.b.Submit(&bus.Event{Name: "COMMAND", Extra: map[string]any{}}) {
+	for _, payload := range f.b.Submit(&bus.Event{Name: "COMMAND"}) {
 		if spec, ok := payload.(admin.Spec); ok && spec.Name == "guard" {
 			line := "guard"
 			if args != "" {
@@ -83,7 +83,7 @@ func TestResidentsCollectedWhileIdle(t *testing.T) {
 	f.event("IRC_JOIN", "Lotjuh", "lot", "other.example", "#testing")
 	f.event("IRC_PRIVMSG", "server.example", "", "", "#testing") // no user@host
 	me := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#t",
-		SenderMe: true, Extra: map[string]any{}}
+		SenderMe: true}
 	me.Sender.Nick, me.Sender.User, me.Sender.Host = "Meretrix", "Botje", "bot.example"
 	f.b.Submit(me)
 
@@ -189,7 +189,7 @@ func TestQuitFlushes(t *testing.T) {
 	st := storage.NewMemory()
 	f := newFixture(t, st)
 	f.event("IRC_PRIVMSG", "BenV", "benv", "host.example", "#testing")
-	f.b.Submit(&bus.Event{Name: "QUIT", Extra: map[string]any{}})
+	f.b.Submit(&bus.Event{Name: "QUIT"})
 	if got := f.stored(t); got["junerules"]["benv@host.example"] == 0 {
 		t.Fatalf("QUIT did not flush: %v", got)
 	}

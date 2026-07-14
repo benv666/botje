@@ -44,19 +44,19 @@ func newEnforce(t *testing.T) *efixture {
 }
 
 func (f *efixture) join(nick, user, host, channel string) {
-	ev := &bus.Event{Name: "IRC_JOIN", Server: "junerules", Channel: channel, Extra: map[string]any{}}
+	ev := &bus.Event{Name: "IRC_JOIN", Server: "junerules", Channel: channel}
 	ev.Sender.Nick, ev.Sender.User, ev.Sender.Host = nick, user, host
 	f.b.Submit(ev)
 }
 
 func (f *efixture) say(nick, user, host, channel, msg string) {
-	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel, Msg: msg, Extra: map[string]any{}}
+	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel, Msg: msg}
 	ev.Sender.Nick, ev.Sender.User, ev.Sender.Host = nick, user, host
 	f.b.Submit(ev)
 }
 
 func (f *efixture) query(nick, user, host, msg string) {
-	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: nick, Query: true, Msg: msg, Extra: map[string]any{}}
+	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: nick, Query: true, Msg: msg}
 	ev.Sender.Nick, ev.Sender.User, ev.Sender.Host = nick, user, host
 	f.b.Submit(ev)
 }

@@ -90,7 +90,7 @@ func (m *Module) onKick(ev *bus.Event) (bus.Handled, any) {
 	if !ev.TargetMe {
 		return bus.None, nil
 	}
-	channel, _ := ev.Extra["channel"].(string)
+	channel := ev.Channel
 	m.adjust(ev.Sender.Nick, -1, ev.Server, channel, "For kicking defenseless bots")
 	return bus.None, nil
 }

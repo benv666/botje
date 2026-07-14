@@ -45,7 +45,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 func (f *fixture) event(name string, mut func(*bus.Event)) {
-	ev := &bus.Event{Name: name, Server: "junerules", Extra: map[string]any{}}
+	ev := &bus.Event{Name: name, Server: "junerules"}
 	ev.Sender.Nick, ev.Sender.User, ev.Sender.Host = "BenV", "benv", "host.example"
 	if mut != nil {
 		mut(ev)
@@ -78,18 +78,18 @@ func TestChannelLogLines(t *testing.T) {
 		ev.Raw.Params = "#testing :cya"
 	})
 	f.event("IRC_KICK", func(ev *bus.Event) {
-		ev.Extra["channel"] = "#testing"
-		ev.Extra["target"] = "spammer"
-		ev.Extra["reason"] = "flood"
+		ev.Channel = "#testing"
+		ev.Target = "spammer"
+		ev.Reason = "flood"
 	})
 	f.event("IRC_TOPIC", func(ev *bus.Event) {
 		ev.Channel = "#testing"
-		ev.Extra["topic"] = "new topic"
+		ev.Topic = "new topic"
 	})
 	f.event("IRC_MODE", func(ev *bus.Event) {
 		ev.Channel = "#testing"
-		ev.Extra["mode"] = "+o"
-		ev.Extra["unparsed"] = []string{"Meretrix"}
+		ev.Mode = "+o"
+		ev.Args = []string{"Meretrix"}
 	})
 
 	got := f.read(t, "junerules/#testing/2026-07-08.log")
@@ -116,7 +116,7 @@ func TestQueryAndServerPaths(t *testing.T) {
 		ev.Query = true
 		ev.Msg = "psst"
 	})
-	f.event("IRC_QUIT", func(ev *bus.Event) { ev.Extra["msg"] = "Quit: brb" })
+	f.event("IRC_QUIT", func(ev *bus.Event) { ev.Msg = "Quit: brb" })
 
 	if got := f.read(t, "junerules/queries/benv/2026-07-08.log"); !strings.Contains(got, "<BenV> psst") {
 		t.Errorf("query log = %q", got)

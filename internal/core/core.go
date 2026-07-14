@@ -134,7 +134,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if err := cfg.Store.Put("core", "conf", c.conf.Stored()); err != nil {
 			slog.Error("core: save conf", "err", err)
 		}
-		c.bus.Submit(&bus.Event{Name: "config_changed", Msg: name, Extra: map[string]any{}})
+		c.bus.Submit(&bus.Event{Name: "config_changed", Msg: name})
 	}
 	c.conf.CreateInt("anti_flood_max_lines", 4)
 
@@ -147,7 +147,7 @@ func Run(ctx context.Context, cfg Config) error {
 		c.saveChannels()
 	}
 	c.bus.RegisterHook("core", "IRC_INVITE", func(ev *bus.Event) (bus.Handled, any) {
-		ch, _ := ev.Extra["channel"].(string)
+		ch := ev.Channel
 		if ch == "" {
 			return bus.None, nil
 		}

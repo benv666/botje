@@ -194,7 +194,7 @@ func (m *Module) onTopic(ev *bus.Event) (bus.Handled, any) {
 	if ev.SenderMe || !m.ownedChannel(ev.Channel) {
 		return bus.None, nil
 	}
-	if got, _ := ev.Extra["topic"].(string); got != format.ToIRC(langs[m.langFor(ev.Channel)].topic) {
+	if ev.Topic != format.ToIRC(langs[m.langFor(ev.Channel)].topic) {
 		m.setTopic(ev.Channel)
 	}
 	return bus.None, nil

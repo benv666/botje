@@ -38,7 +38,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 
 func (f *fixture) msg(nick, text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: text, Extra: map[string]any{}}
+		Msg: text}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -90,7 +90,7 @@ func TestZeroSentencesNoRatio(t *testing.T) {
 	// channel side must not divide by zero
 	f.msg("BenV", "I exist")
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#other",
-		Msg: "!ego benv", Extra: map[string]any{}}
+		Msg: "!ego benv"}
 	ev.Sender.Nick = "Someone"
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)

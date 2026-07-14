@@ -115,7 +115,7 @@ func TestSaverSkipsWhileInflight(t *testing.T) {
 	f.saver.Mark("ns", "a", func() any { return 1 })
 	f.saver.Flush() // hangs in the backend
 	f.saver.Mark("ns", "b", func() any { return 2 })
-	f.saver.Flush() // must not start a second write
+	f.saver.Flush()  // must not start a second write
 	close(f.blocked) // stays closed: later gate checks pass right through
 	f.drain(t)
 	if f.puts != 1 {

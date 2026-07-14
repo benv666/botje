@@ -61,7 +61,7 @@ func newFixture(t *testing.T) *fixture {
 
 func (f *fixture) say(nick, msg string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: msg, Extra: map[string]any{}}
+		Msg: msg}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -193,7 +193,7 @@ func TestHistoryPerChannel(t *testing.T) {
 	f.take()
 	// a different channel starts fresh
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#other",
-		Msg: "!gpt kanaal twee", Extra: map[string]any{}}
+		Msg: "!gpt kanaal twee"}
 	ev.Sender.Nick = "BenV"
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -372,7 +372,7 @@ func TestOwnMessageIgnored(t *testing.T) {
 	f := newFixture(t)
 	f.cf.Set("llm_openai_key", "k")
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: "!gpt iets", SenderMe: true, Extra: map[string]any{}}
+		Msg: "!gpt iets", SenderMe: true}
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
 	if len(f.calls) != 0 {

@@ -43,8 +43,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 }
 
 func (f *fixture) privmsg(channel, msg string) {
-	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel, Msg: msg,
-		Extra: map[string]any{}}
+	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel, Msg: msg}
 	ev.Sender.Nick = "BenV"
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -135,7 +134,7 @@ func TestNonKarmaIgnored(t *testing.T) {
 func TestOwnMessagesIgnored(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: "!beer++", SenderMe: true, Extra: map[string]any{}}
+		Msg: "!beer++", SenderMe: true}
 	f.b.Submit(ev)
 	if len(f.sent) != 0 {
 		t.Errorf("replied to own message: %q", f.sent)
@@ -185,7 +184,7 @@ func TestShortReasonNotRecorded(t *testing.T) {
 func TestKickCostsKarma(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	ev := &bus.Event{Name: "IRC_KICK", Server: "junerules", TargetMe: true,
-		Extra: map[string]any{"channel": "#testing", "target": "Meretrix"}}
+		Channel: "#testing", Target: "Meretrix"}
 	ev.Sender.Nick = "BenV"
 	f.b.Submit(ev)
 	if len(f.sent) != 0 {
@@ -210,7 +209,7 @@ func TestKickCostsKarma(t *testing.T) {
 func TestKickOfOthersIgnored(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	ev := &bus.Event{Name: "IRC_KICK", Server: "junerules", TargetMe: false,
-		Extra: map[string]any{"channel": "#testing", "target": "Someone"}}
+		Channel: "#testing", Target: "Someone"}
 	ev.Sender.Nick = "BenV"
 	f.b.Submit(ev)
 	f.privmsg("#testing", "!benv?")
