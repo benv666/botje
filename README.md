@@ -245,9 +245,13 @@ clock, and timeouts stay quiet there. The current player says:
 | solve | `los op <zin>` | `solve <phrase>` |
 | give up the turn | `pas` | `pass` |
 
-Turns time out (`conf rvf_turn_seconds`, default 90); three consecutive
-timeouts abort the game and reveal the answer. The solver banks their
-round money and enters the persistent `!top10` (nick/channel/score).
+Turns time out (`conf rvf_turn_seconds`, default 90). A player who
+sleeps through their own turn twice in a row (`conf
+rvf_max_missed_turns`) is dropped and the rest play on; when the last
+player is dropped the game ends with the answer revealed. Grabbing the
+wheel out of turn gets you told whose turn it is. The solver banks
+their round money and enters the persistent `!top10`
+(nick/channel/score).
 
 Channels listed in `conf rvf_channels_en` (default `#wheeloffortune`)
 play in english with dollar amounts; everywhere else is dutch. On its

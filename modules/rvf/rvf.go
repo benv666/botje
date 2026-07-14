@@ -78,7 +78,7 @@ func (m *Module) Load(ctx *module.Context) error {
 	m.ctx = ctx
 	ctx.Conf.CreateInt("rvf_vowel_cost", 250)
 	ctx.Conf.CreateInt("rvf_turn_seconds", 90)
-	ctx.Conf.CreateInt("rvf_max_timeouts", 3)
+	ctx.Conf.CreateInt("rvf_max_missed_turns", 2)
 	ctx.Conf.CreateString("rvf_channels_nl", "#radvanfortuin")
 	ctx.Conf.CreateString("rvf_channels_en", "#wheeloffortune")
 
@@ -355,8 +355,11 @@ func (m *Module) armTimer(key string) {
 	})
 }
 
-// turnTimeout passes the sleeping player's turn; too many in a row
-// abort the game.
+// turnTimeout handles a slept-through turn: pass it, and drop players
+// who sleep through too many of their own turns in a row (Bram vs an
+// AFK BenV, 2026-07-14: the old global 3-timeouts abort killed the
+// game under an active player's nose). The game ends when the last
+// player is dropped.
 func (m *Module) turnTimeout(key string) {
 	g, ok := m.games[key]
 	if !ok {
@@ -364,18 +367,26 @@ func (m *Module) turnTimeout(key string) {
 	}
 	t := langs[g.Lang]
 	channel := channelOf(key)
-	g.Timeouts++
-	if g.Timeouts >= m.ctx.Conf.Int("rvf_max_timeouts") {
-		m.endGame(key)
-		m.ctx.Privmsg(channel, fmt.Sprintf(t.aborted, g.Puzzle))
+	cur := g.Current()
+	cur.Missed++
+	if cur.Missed >= m.ctx.Conf.Int("rvf_max_missed_turns") {
+		nick := g.DropCurrent()
+		if len(g.Players) == 0 {
+			m.endGame(key)
+			m.ctx.Privmsg(channel, fmt.Sprintf(t.aborted, g.Puzzle))
+			return
+		}
+		m.saveGames()
+		m.armTimer(key)
+		m.ctx.Privmsg(channel, fmt.Sprintf(t.dropped, nick)+"\n"+m.turnLine(g))
 		return
 	}
-	slept := g.Current().Nick
+	slept := cur.Nick
 	g.Pass()
 	m.saveGames()
 	m.armTimer(key)
 	// a solo query player does not need to hear they are asleep; the
-	// abort above still reveals the solution when they never come back
+	// reveal above still happens when they never come back
 	if !g.Query {
 		m.ctx.Privmsg(channel, fmt.Sprintf(t.timeout, slept)+"\n"+m.turnLine(g))
 	}
@@ -400,13 +411,17 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 	if !ok {
 		return bus.None, nil
 	}
-	if !g.IsCurrent(ev.Sender.Nick) {
-		// other players' chatter flows on; in a solo query game the
-		// sender is always current
-		return bus.None, nil
-	}
 	t := langs[g.Lang]
 	reply := func(msg string) { m.ctx.Privmsg(ev.Channel, msg) }
+	if !g.IsCurrent(ev.Sender.Nick) {
+		// a fellow PLAYER reaching for the wheel out of turn gets a
+		// nudge; spectators and plain chatter flow on untouched
+		if g.IsPlayer(ev.Sender.Nick) && g.GameMove(ev.Msg) {
+			reply(fmt.Sprintf(t.notYourTurn, g.Current().Nick))
+			return bus.Stop, nil
+		}
+		return bus.None, nil
+	}
 
 	handled := m.handleMove(key, g, t, ev.Msg, reply)
 	if !handled && ev.Query && !strings.HasPrefix(ev.Msg, "!") {
@@ -425,6 +440,7 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 // handleMove parses and applies one game move; false = not game input.
 func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply func(string)) bool {
 	cost := m.ctx.Conf.Int("rvf_vowel_cost")
+	mover := g.Current()
 
 	if g.State == StateLetter {
 		lm := letterRe.FindStringSubmatch(msg)
@@ -456,7 +472,7 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			}
 			reply(out + "\n" + m.turnLine(g))
 		}
-		m.moveDone(key, g)
+		m.moveDone(key, g, mover)
 		return true
 	}
 
@@ -481,7 +497,7 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 		case SegJoker:
 			reply(fmt.Sprintf(t.spinJoker, g.Current().Nick) + "\n" + m.turnLine(g))
 		}
-		m.moveDone(key, g)
+		m.moveDone(key, g, mover)
 		return true
 
 	case t.buyRe.MatchString(msg):
@@ -502,7 +518,7 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			}
 			reply(out + "\n" + m.turnLine(g))
 		}
-		m.moveDone(key, g)
+		m.moveDone(key, g, mover)
 		return true
 
 	case t.solveRe.MatchString(msg):
@@ -523,13 +539,13 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			return true
 		}
 		reply(t.solveWrong + "\n" + m.turnLine(g))
-		m.moveDone(key, g)
+		m.moveDone(key, g, mover)
 		return true
 
 	case t.passRe.MatchString(msg):
 		g.Pass()
 		reply(m.turnLine(g))
-		m.moveDone(key, g)
+		m.moveDone(key, g, mover)
 		return true
 
 	case letterRe.MatchString(msg):
@@ -544,9 +560,10 @@ func (m *Module) pick(list []string) string {
 	return list[m.rollN(len(list))]
 }
 
-// moveDone persists and resets the turn clock after any valid move.
-func (m *Module) moveDone(key string, g *Game) {
-	g.Timeouts = 0
+// moveDone persists and resets the turn clock after any valid move;
+// the mover proved awake, so their missed-turn counter clears.
+func (m *Module) moveDone(key string, g *Game, mover *Player) {
+	mover.Missed = 0
 	m.saveGames()
 	m.armTimer(key)
 }
