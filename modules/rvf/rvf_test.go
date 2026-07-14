@@ -606,3 +606,60 @@ func TestNotYourTurnNudge(t *testing.T) {
 		t.Fatalf("spectator answered: %q", out)
 	}
 }
+
+// the board (with the wrong guesses so far) is visible on EVERY turn
+// change, not only on hits: the 15:32 game had six misses in a row
+// with an invisible board and Bram begging "laat het woord dan zien".
+func TestBoardAlwaysVisible(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
+	f.take()
+
+	// a miss shows the board and the wrong letter
+	f.rolls = []int{20}
+	f.msg("BenV", "#radvanfortuin", "draai")
+	f.take()
+	f.msg("BenV", "#radvanfortuin", "z")
+	out := f.all()
+	if !strings.Contains(out, "░") || !strings.Contains(out, "fout: Z") {
+		t.Fatalf("miss reply lacks board/wrong letters: %q", out)
+	}
+	// a wrong solve shows the board
+	f.msg("Lotjuh", "#radvanfortuin", "los op: iets heel anders")
+	if out := f.all(); !strings.Contains(out, "░") {
+		t.Fatalf("wrong solve lacks the board: %q", out)
+	}
+	// a pass shows the board
+	f.msg("BenV", "#radvanfortuin", "pas")
+	if out := f.all(); !strings.Contains(out, "░") {
+		t.Fatalf("pass lacks the board: %q", out)
+	}
+	// a timeout shows the board
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	if out := f.all(); !strings.Contains(out, "░") {
+		t.Fatalf("timeout lacks the board: %q", out)
+	}
+	// wrong letters accumulate sorted, dups do not repeat
+	f.rolls = []int{20}
+	f.msg("BenV", "#radvanfortuin", "draai")
+	f.take()
+	f.msg("BenV", "#radvanfortuin", "q")
+	out = f.all()
+	if !strings.Contains(out, "fout: Q Z") {
+		t.Fatalf("wrong letters not accumulated sorted: %q", out)
+	}
+}
+
+// bankrupt and the other specials show the board too.
+func TestBoardOnSpecials(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
+	f.take()
+	f.rolls = []int{segIndex(t, SegBankrupt, 0)}
+	f.msg("BenV", "#radvanfortuin", "draai")
+	out := f.all()
+	if !strings.Contains(out, "BANKROET") || !strings.Contains(out, "░") {
+		t.Fatalf("bankrupt lacks the board: %q", out)
+	}
+}

@@ -216,9 +216,21 @@ func (m *Module) rollN(n int) int {
 	return rand.IntN(n)
 }
 
-// boardLine renders the category and the masked puzzle.
+// boardLine renders the category, the masked puzzle, and the wrong
+// guesses so far ("weet ik veel wat er al geweest is", Bram 2026-07-14).
 func boardLine(g *Game) string {
-	return fmt.Sprintf("{c}[%s]{/} {y}%s{/}", g.Category, g.Board())
+	line := fmt.Sprintf("{c}[%s]{/} {y}%s{/}", g.Category, g.Board())
+	if wrong := g.WrongGuesses(); len(wrong) > 0 {
+		line += fmt.Sprintf(" {r}%s %s{/}", langs[g.Lang].wrongLabel, strings.Join(wrong, " "))
+	}
+	return line
+}
+
+// status is the always-visible game state: the board plus whose turn
+// it is. Every turn change sends this (the 15:32 game log had six
+// misses in a row with an invisible board).
+func (m *Module) status(g *Game) string {
+	return boardLine(g) + "\n" + m.turnLine(g)
 }
 
 // turnLine renders whose turn it is, their money, and the actions.
@@ -279,7 +291,7 @@ func (m *Module) cbStart(d *cmd.Data) bool {
 	m.games[key] = g
 	m.saveGames()
 	m.armTimer(key)
-	m.ctx.Privmsg(ev.Channel, boardLine(g)+"\n"+m.turnLine(g))
+	m.ctx.Privmsg(ev.Channel, m.status(g))
 	return true
 }
 
@@ -378,7 +390,7 @@ func (m *Module) turnTimeout(key string) {
 		}
 		m.saveGames()
 		m.armTimer(key)
-		m.ctx.Privmsg(channel, fmt.Sprintf(t.dropped, nick)+"\n"+m.turnLine(g))
+		m.ctx.Privmsg(channel, fmt.Sprintf(t.dropped, nick)+"\n"+m.status(g))
 		return
 	}
 	slept := cur.Nick
@@ -388,7 +400,7 @@ func (m *Module) turnTimeout(key string) {
 	// a solo query player does not need to hear they are asleep; the
 	// reveal above still happens when they never come back
 	if !g.Query {
-		m.ctx.Privmsg(channel, fmt.Sprintf(t.timeout, slept)+"\n"+m.turnLine(g))
+		m.ctx.Privmsg(channel, fmt.Sprintf(t.timeout, slept)+"\n"+m.status(g))
 	}
 }
 
@@ -460,8 +472,7 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 		case OutInvalid:
 			reply(t.needConsonant)
 		case OutHit:
-			reply(fmt.Sprintf(t.hit, res.Count, letter, t.money(res.Amount)) +
-				"\n" + boardLine(g) + "\n" + m.turnLine(g))
+			reply(fmt.Sprintf(t.hit, res.Count, letter, t.money(res.Amount)) + "\n" + m.status(g))
 		case OutMiss:
 			out := fmt.Sprintf(t.miss, letter)
 			if res.Dup {
@@ -470,7 +481,7 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			if res.JokerSaved {
 				out += " " + t.jokerSaved
 			}
-			reply(out + "\n" + m.turnLine(g))
+			reply(out + "\n" + m.status(g))
 		}
 		m.moveDone(key, g, mover)
 		return true
@@ -487,15 +498,15 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			if fx.JokerSaved {
 				out += " " + t.jokerSaved
 			}
-			reply(out + "\n" + m.turnLine(g))
+			reply(out + "\n" + m.status(g))
 		case SegLoseTurn:
 			out := t.spinLoseTurn
 			if fx.JokerSaved {
 				out += " " + t.jokerSaved
 			}
-			reply(out + "\n" + m.turnLine(g))
+			reply(out + "\n" + m.status(g))
 		case SegJoker:
-			reply(fmt.Sprintf(t.spinJoker, g.Current().Nick) + "\n" + m.turnLine(g))
+			reply(fmt.Sprintf(t.spinJoker, g.Current().Nick) + "\n" + m.status(g))
 		}
 		m.moveDone(key, g, mover)
 		return true
@@ -509,14 +520,13 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 		case OutBroke:
 			reply(fmt.Sprintf(t.broke, t.money(cost)))
 		case OutHit:
-			reply(fmt.Sprintf(t.hitVowel, res.Count, letter) +
-				"\n" + boardLine(g) + "\n" + m.turnLine(g))
+			reply(fmt.Sprintf(t.hitVowel, res.Count, letter) + "\n" + m.status(g))
 		case OutMiss:
 			out := fmt.Sprintf(t.miss, letter)
 			if res.JokerSaved {
 				out += " " + t.jokerSaved
 			}
-			reply(out + "\n" + m.turnLine(g))
+			reply(out + "\n" + m.status(g))
 		}
 		m.moveDone(key, g, mover)
 		return true
@@ -538,13 +548,13 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			reply(out)
 			return true
 		}
-		reply(t.solveWrong + "\n" + m.turnLine(g))
+		reply(t.solveWrong + "\n" + m.status(g))
 		m.moveDone(key, g, mover)
 		return true
 
 	case t.passRe.MatchString(msg):
 		g.Pass()
-		reply(m.turnLine(g))
+		reply(m.status(g))
 		m.moveDone(key, g, mover)
 		return true
 
