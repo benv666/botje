@@ -404,8 +404,10 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 	reply := func(msg string) { m.ctx.Privmsg(ev.Channel, msg) }
 
 	handled := m.handleMove(key, g, t, ev.Msg, reply)
-	if !handled && ev.Query {
-		// mid-game query noise gets the usage line instead of markov
+	if !handled && ev.Query && !strings.HasPrefix(ev.Msg, "!") {
+		// mid-game query noise gets the usage line instead of markov;
+		// !commands are the registry's business (!stop must not get a
+		// help line stacked on top)
 		reply(t.queryHelp)
 		handled = true
 	}
