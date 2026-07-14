@@ -423,3 +423,25 @@ func TestNormalizeSparkline(t *testing.T) {
 		t.Fatalf("normalized tail = %v", got)
 	}
 }
+
+// the 6h broadcast cap survives a restart: the per-symbol state is
+// persisted, so a dev-cycle boot does not re-announce the same price
+// (BenV 2026-07-14).
+func TestBroadcastCapSurvivesRestart(t *testing.T) {
+	store := storage.NewMemory()
+	f := newFixture(t, store)
+	f.feedBTC(t, 95000)
+	if got := f.take(); len(got) < 2 { // sub reply + price line
+		t.Fatalf("first price should broadcast: %q", got)
+	}
+
+	f2 := newFixture(t, store)
+	f2.clk = f.clk.Add(time.Minute)
+	f2.sch.RunDue() // restore poll (rand offset 0)
+	f2.complete(t, btcURL, btcJSON(95100))
+	for _, line := range f2.take() {
+		if strings.Contains(line, "95") {
+			t.Fatalf("restart re-broadcast within the gap: %q", line)
+		}
+	}
+}

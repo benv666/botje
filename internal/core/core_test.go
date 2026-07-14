@@ -700,3 +700,23 @@ func TestCorePrivmsgDroppedBeforeWelcome(t *testing.T) {
 	h.welcome()
 	h.expect("JOIN #testing") // and the dropped query never shows up
 }
+
+// messages replayed from the keeper's buffer while the core is still
+// registering are held until the welcome, then processed normally.
+// Before this they mutated module state while every reply was eaten by
+// the pre-welcome outbound guard (BenV's silent "draai", 2026-07-14).
+func TestCoreHoldsPreWelcomePrivmsg(t *testing.T) {
+	h := newHarnessRaw(t, &echoModule{})
+	h.expect("USER ")
+	// the keeper flushes buffered chat before registration completes
+	h.send(":BenV!benv@host PRIVMSG Meretrix :!ping vroeg")
+	h.server.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if line, err := h.r.ReadString('\n'); err == nil {
+		t.Fatalf("wire got %q before the welcome", line)
+	}
+	h.welcome()
+	h.expect("JOIN #testing")
+	if got := h.expect("PRIVMSG BenV :"); got != "PRIVMSG BenV :pong vroeg" {
+		t.Fatalf("held message not replayed after welcome: %q", got)
+	}
+}

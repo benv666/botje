@@ -106,8 +106,13 @@ func (m *Module) Load(ctx *module.Context) error {
 	if m.extra == nil {
 		m.extra = make(map[string][]Puzzle)
 	}
-	// restored games get a fresh full turn timer
-	for key := range m.games {
+	// restored games get a fresh full turn timer; nick-keyed games are
+	// query games whatever the stored flag says (games persisted before
+	// the flag existed restored as noisy channel games)
+	for key, g := range m.games {
+		if ch := channelOf(key); ch != "" && !strings.ContainsAny(ch[:1], "#&+!") {
+			g.Query = true
+		}
 		m.armTimer(key)
 	}
 	return nil

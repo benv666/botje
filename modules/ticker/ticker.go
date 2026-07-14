@@ -63,6 +63,16 @@ type stored struct {
 	Data    map[string][]sample   `json:"tickerdata"`
 }
 
+// symState is the persisted per-symbol broadcast state. Without it a
+// core restart reset the 6h broadcast cap (and the delta baseline) and
+// every boot re-announced the same price to the subscribed channels
+// (BenV, 2026-07-14, after a day of dev restarts).
+type symState struct {
+	LastBroadcast int64   `json:"last_broadcast"`
+	LastShown     float64 `json:"last_shown"`
+	HasShown      bool    `json:"has_shown"`
+}
+
 var (
 	addRe      = regexp.MustCompile(`^add\s+(\S+)(?:\s+(.+))?\s*$`)
 	showRe     = regexp.MustCompile(`^show\s+(\S+)\s*(\d+)?`)
@@ -145,6 +155,15 @@ func (m *Module) Load(ctx *module.Context) error {
 	for sym, data := range st.Data {
 		m.fetcherFor(sym).data = data
 	}
+	var state map[string]*symState
+	if _, err := ctx.Store.Get(m.Name(), "tickerstate", &state); err != nil {
+		return fmt.Errorf("ticker: load state: %w", err)
+	}
+	for sym, s := range state {
+		f := m.fetcherFor(sym)
+		f.lastBroadcast = time.Unix(s.LastBroadcast, 0)
+		f.lastShown, f.hasShown = s.LastShown, s.HasShown
+	}
 	for sym := range m.tickers {
 		m.scheduleRefresh(sym, time.Duration(m.rand()*30)*time.Second)
 	}
@@ -172,12 +191,20 @@ func (m *Module) save() error {
 		return err
 	}
 	data := make(map[string][]sample, len(m.fetchers))
+	state := make(map[string]*symState, len(m.fetchers))
 	for sym, f := range m.fetchers {
 		if len(f.data) > 0 {
 			data[sym] = f.data
 		}
+		state[sym] = &symState{
+			LastBroadcast: f.lastBroadcast.Unix(),
+			LastShown:     f.lastShown, HasShown: f.hasShown,
+		}
 	}
-	return m.ctx.Store.Put(m.Name(), "tickerdata", data)
+	if err := m.ctx.Store.Put(m.Name(), "tickerdata", data); err != nil {
+		return err
+	}
+	return m.ctx.Store.Put(m.Name(), "tickerstate", state)
 }
 
 func (m *Module) fetcherFor(sym string) *fetcher {

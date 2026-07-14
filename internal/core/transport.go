@@ -80,11 +80,28 @@ func (c *core) connect() {
 
 	sess.Send = conn.Write
 	sess.SendHigh = conn.WriteHigh
-	sess.Emit = func(ev *bus.Event) {
+	dispatch := func(ev *bus.Event) {
 		c.bus.Submit(ev)
 		if ev.Name == "IRC_PRIVMSG" && !ev.SenderMe {
 			c.cmds.Handle(ev)
 		}
+	}
+	// user messages arriving before the welcome are held and replayed
+	// after it: the keeper buffers inbound while a core restarts, and
+	// flushing that buffer into an unregistered core made modules
+	// mutate state (a rad-van-fortuin spin!) while every reply was
+	// eaten by the pre-welcome outbound guard (BenV's silent "draai",
+	// 2026-07-14). The cap keeps a hostile backlog from ballooning;
+	// anything beyond it is dropped like it always was.
+	var held []*bus.Event
+	sess.Emit = func(ev *bus.Event) {
+		if ev.Name == "IRC_PRIVMSG" && !ev.SenderMe && !sess.Welcomed() {
+			if len(held) < 64 {
+				held = append(held, ev)
+			}
+			return
+		}
+		dispatch(ev)
 	}
 	c.conn, c.session = conn, sess
 
@@ -93,9 +110,14 @@ func (c *core) connect() {
 	// registers us dies with ERR_NOTREGISTERED (2026-07-13, JOINs
 	// queued in the keeper flushed ahead of registration completing)
 	sess.Welcome = func() {
-		if c.session == sess { // still this connection
-			sess.JoinChannels(c.channels)
+		if c.session != sess { // superseded connection
+			return
 		}
+		sess.JoinChannels(c.channels)
+		for _, ev := range held {
+			dispatch(ev)
+		}
+		held = nil
 	}
 	sess.Register()
 }

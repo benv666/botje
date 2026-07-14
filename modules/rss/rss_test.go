@@ -19,6 +19,7 @@ type fixture struct {
 	b       *bus.Bus
 	cmds    *cmd.Registry
 	sch     *sched.Sched
+	saver   *storage.Saver
 	clk     time.Time
 	sent    []string
 	fetched []string
@@ -43,8 +44,11 @@ func newFixtureAt(t *testing.T, store storage.Store, clk time.Time) *fixture {
 		f.cbs[url] = cb
 		return true
 	}
+	f.saver = storage.NewSaver(store,
+		func(fn func()) { fn() },
+		func(err error) { t.Errorf("saver: %v", err) })
 	err := f.m.Load(&module.Context{
-		Bus: f.b, Cmd: f.cmds, Store: store, Sched: f.sch,
+		Bus: f.b, Cmd: f.cmds, Store: store, Sched: f.sch, Saver: f.saver,
 		Privmsg: func(ch, msg string) {
 			for l := range strings.SplitSeq(msg, "\n") {
 				f.sent = append(f.sent, ch+"|"+l)
@@ -417,5 +421,32 @@ func TestHelpAndSyntaxError(t *testing.T) {
 	got := f.take()
 	if len(got) != 3 || got[0] != "#testing|Syntax error!" {
 		t.Fatalf("syntax error = %q", got)
+	}
+}
+
+// received-guids marked during a broadcast survive a restart: without
+// this every dev-cycle boot re-sent the same items (BenV 2026-07-14).
+func TestReceivedSurvivesRestart(t *testing.T) {
+	store := storage.NewMemory()
+	f := newFixture(t, store)
+	f.subscribe(t, "een", "twee")
+	// a REFRESH delivers drie: this mark only exists in RAM unless the
+	// broadcast path persists it (the add path always saved)
+	f.advance(30 * time.Minute)
+	f.complete(t, feedURL, rssWith("een", "twee", "drie"))
+	if got := f.take(); len(got) != 1 {
+		t.Fatalf("refresh broadcast = %q", got)
+	}
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
+	}
+
+	// "restart": fresh module on the same store; the restore poll finds
+	// the same three items and must stay quiet
+	f2 := newFixtureAt(t, store, f.clk.Add(time.Minute))
+	f2.advance(16 * time.Second) // restore stagger (offset 0 + 15s base)
+	f2.complete(t, feedURL, rssWith("een", "twee", "drie"))
+	if got := f2.take(); len(got) != 0 {
+		t.Fatalf("restart re-broadcast already-seen items: %q", got)
 	}
 }

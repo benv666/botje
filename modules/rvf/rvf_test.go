@@ -523,3 +523,24 @@ func TestSpinFirstHint(t *testing.T) {
 		t.Fatalf("letter before spin: %q", out)
 	}
 }
+
+// games persisted before the Query flag existed are healed at load:
+// a nick-keyed game is a query game (BenV got "zit te slapen" in his
+// query from a game that predated the flag).
+func TestRestoredNickKeyGameIsQuery(t *testing.T) {
+	store := storage.NewMemory()
+	games := map[string]*Game{
+		"junerules benv":           NewGame("nl", "Gezegde", "RUST ROEST", []string{"BenV"}),
+		"junerules #radvanfortuin": NewGame("nl", "Gezegde", "RUST ROEST", []string{"BenV"}),
+	}
+	if err := store.Put("rvf", "games", games); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t, store)
+	if g := f.m.games["junerules benv"]; g == nil || !g.Query {
+		t.Fatalf("nick-keyed game not healed to query: %+v", g)
+	}
+	if g := f.m.games["junerules #radvanfortuin"]; g == nil || g.Query {
+		t.Fatalf("channel game wrongly marked query: %+v", g)
+	}
+}
