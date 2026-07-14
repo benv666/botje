@@ -649,6 +649,15 @@ func TestBoardAlwaysVisible(t *testing.T) {
 	if !strings.Contains(out, "fout: Q Z") {
 		t.Fatalf("wrong letters not accumulated sorted: %q", out)
 	}
+	// a HIT letter is on the board, not in the wrong list
+	f.rolls = []int{20}
+	f.msg("Lotjuh", "#radvanfortuin", "draai")
+	f.take()
+	f.msg("Lotjuh", "#radvanfortuin", "t")
+	out = f.all()
+	if !strings.Contains(out, "fout: Q Z") || strings.Contains(out, "fout: Q T Z") {
+		t.Fatalf("hit letter leaked into the wrong list: %q", out)
+	}
 }
 
 // bankrupt and the other specials show the board too.
