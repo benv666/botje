@@ -194,8 +194,7 @@ func (m *Module) onJoin(ev *bus.Event) (bus.Handled, any) {
 }
 
 func (m *Module) onKick(ev *bus.Event) (bus.Handled, any) {
-	channel, _ := ev.Extra["channel"].(string)
-	target, _ := ev.Extra["target"].(string)
+	channel, target := ev.Channel, ev.Target
 	if !isChannel(channel) || target == "" {
 		return bus.None, nil
 	}

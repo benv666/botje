@@ -69,7 +69,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 
 func (f *fixture) msg(nick, channel, text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel,
-		Msg: text, Extra: map[string]any{}}
+		Msg: text}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -77,7 +77,7 @@ func (f *fixture) msg(nick, channel, text string) {
 
 func (f *fixture) query(nick, text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: nick,
-		Msg: text, Query: true, Extra: map[string]any{}}
+		Msg: text, Query: true}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -405,7 +405,7 @@ func TestGameSurvivesRestart(t *testing.T) {
 func TestTelnetAddDelList(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	var spec admin.Spec
-	for _, payload := range f.b.Submit(&bus.Event{Name: "COMMAND", Extra: map[string]any{}}) {
+	for _, payload := range f.b.Submit(&bus.Event{Name: "COMMAND"}) {
 		if s, ok := payload.(admin.Spec); ok && s.Name == "rvf" {
 			spec = s
 		}

@@ -147,7 +147,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 
 func (f *fixture) msg(nick, channel, text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel,
-		Msg: text, Extra: map[string]any{}}
+		Msg: text}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
@@ -558,7 +558,7 @@ func TestRegenWet(t *testing.T) {
 func TestDailyReport(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.cf.Set("weather_report_channels", "#testing #rss")
-	f.b.Submit(&bus.Event{Name: "config_changed", Msg: "weather_report_channels", Extra: map[string]any{}})
+	f.b.Submit(&bus.Event{Name: "config_changed", Msg: "weather_report_channels"})
 
 	// clock starts at 12:00; the report is due at 07:00 tomorrow
 	f.clk = f.clk.Add(19 * time.Hour) // 07:00 next day

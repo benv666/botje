@@ -41,7 +41,7 @@ func newFixture(t *testing.T, randSeq ...float64) *fixture {
 
 func (f *fixture) msg(text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", BotNick: "Meretrix", Channel: "#testing",
-		Msg: text, Extra: map[string]any{}}
+		Msg: text}
 	ev.Sender.Nick = "Verty"
 	f.b.Submit(ev)
 }
@@ -89,7 +89,7 @@ func TestIgnores(t *testing.T) {
 func TestOwnMessageIgnored(t *testing.T) {
 	f := newFixture(t, 0)
 	ev := &bus.Event{Name: "IRC_PRIVMSG", BotNick: "Meretrix", Channel: "#testing",
-		Msg: "....", SenderMe: true, Extra: map[string]any{}}
+		Msg: "....", SenderMe: true}
 	f.b.Submit(ev)
 	if len(f.sent) != 0 {
 		t.Fatalf("replied to own message: %q", f.sent)

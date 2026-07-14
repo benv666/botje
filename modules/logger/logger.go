@@ -134,24 +134,21 @@ func (m *Module) onPart(ev *bus.Event) (bus.Handled, any) {
 func (m *Module) onQuit(ev *bus.Event) (bus.Handled, any) {
 	// quits carry no channel and we keep no user->channels map: they go
 	// to the per-network server log
-	msg, _ := ev.Extra["msg"].(string)
+	msg := ev.Msg
 	m.writeServer(ev.Server, fmt.Sprintf("-!- %s has quit [%s]", who(ev), format.Strip(msg)))
 	return bus.None, nil
 }
 
 func (m *Module) onKick(ev *bus.Event) (bus.Handled, any) {
 	// perl parity: the kick channel travels in extra, ev.Channel is empty
-	channel, _ := ev.Extra["channel"].(string)
-	target, _ := ev.Extra["target"].(string)
-	reason, _ := ev.Extra["reason"].(string)
+	channel, target, reason := ev.Channel, ev.Target, ev.Reason
 	m.write(ev.Server, channel, fmt.Sprintf("-!- %s was kicked from %s by %s [%s]",
 		target, channel, ev.Sender.Nick, format.Strip(reason)))
 	return bus.None, nil
 }
 
 func (m *Module) onMode(ev *bus.Event) (bus.Handled, any) {
-	mode, _ := ev.Extra["mode"].(string)
-	args, _ := ev.Extra["unparsed"].([]string)
+	mode, args := ev.Mode, ev.Args
 	full := strings.TrimSpace(mode + " " + strings.Join(args, " "))
 	if ev.TargetMe {
 		m.writeServer(ev.Server, fmt.Sprintf("-!- mode/%s [%s] by %s", ev.Channel, full, ev.Sender.Nick))
@@ -162,14 +159,14 @@ func (m *Module) onMode(ev *bus.Event) (bus.Handled, any) {
 }
 
 func (m *Module) onTopic(ev *bus.Event) (bus.Handled, any) {
-	topic, _ := ev.Extra["topic"].(string)
+	topic := ev.Topic
 	m.write(ev.Server, ev.Channel, fmt.Sprintf("-!- %s changed the topic of %s to: %s",
 		ev.Sender.Nick, ev.Channel, format.Strip(topic)))
 	return bus.None, nil
 }
 
 func (m *Module) onInvite(ev *bus.Event) (bus.Handled, any) {
-	channel, _ := ev.Extra["channel"].(string)
+	channel := ev.Channel
 	m.writeServer(ev.Server, fmt.Sprintf("-!- %s invited %s to %s", ev.Sender.Nick, ev.BotNick, channel))
 	return bus.None, nil
 }

@@ -50,7 +50,7 @@ func (c *core) startAdmin(ctx context.Context) error {
 // the core builtins. Runs on the dispatcher.
 func (c *core) adminCommands() []admin.Spec {
 	var specs []admin.Spec
-	for _, payload := range c.bus.Submit(&bus.Event{Name: "COMMAND", Extra: map[string]any{}}) {
+	for _, payload := range c.bus.Submit(&bus.Event{Name: "COMMAND"}) {
 		switch v := payload.(type) {
 		case admin.Spec:
 			specs = append(specs, v)

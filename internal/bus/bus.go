@@ -53,7 +53,18 @@ type Event struct {
 	Query    bool // private message to the bot
 	Msg      string
 	Raw      RawCmd
-	Extra    map[string]any // topic, mode, reason, target, netsplit, ...
+
+	// Typed per-event payloads (the 6f refactor, 2026-07-14): what used
+	// to hide in an Extra map[string]any. KICK fills Channel (victim's
+	// channel), Target and Reason; MODE fills Mode and Args; TOPIC fills
+	// Topic; PRIVMSG fills Args with trailing params; QUIT and ERROR
+	// carry their text in Msg, with NetSplit flagging classified splits.
+	Target   string
+	Reason   string
+	Mode     string
+	Topic    string
+	Args     []string
+	NetSplit bool
 }
 
 // Handler is a module hook. The payload (second return) is collected by

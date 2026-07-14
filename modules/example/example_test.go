@@ -44,7 +44,7 @@ func TestExampleModuleWorks(t *testing.T) {
 
 	say := func(msg string) {
 		ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-			Msg: msg, Extra: map[string]any{}}
+			Msg: msg}
 		ev.Sender.Nick = "BenV"
 		b.Submit(ev)
 		cmds.Handle(ev)
@@ -87,7 +87,7 @@ func TestExampleModuleWorks(t *testing.T) {
 
 	// admin spec via COMMAND event
 	var specs []admin.Spec
-	for _, payload := range b.Submit(&bus.Event{Name: "COMMAND", Extra: map[string]any{}}) {
+	for _, payload := range b.Submit(&bus.Event{Name: "COMMAND"}) {
 		if s, ok := payload.(admin.Spec); ok {
 			specs = append(specs, s)
 		}

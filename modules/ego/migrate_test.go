@@ -65,7 +65,7 @@ func TestMigratedReadableByModule(t *testing.T) {
 		t.Fatal(err)
 	}
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#bvs",
-		Msg: "!ego atlantes", Extra: map[string]any{}}
+		Msg: "!ego atlantes"}
 	ev.Sender.Nick = "Someone"
 	b.Submit(ev)
 	cmds.Handle(ev)

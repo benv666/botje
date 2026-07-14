@@ -57,7 +57,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 
 func (f *fixture) msg(nick, channel, text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel,
-		Msg: text, Extra: map[string]any{}}
+		Msg: text}
 	ev.Sender.Nick = nick
 	if !strings.HasPrefix(channel, "#") {
 		ev.Query = true
@@ -67,15 +67,14 @@ func (f *fixture) msg(nick, channel, text string) {
 }
 
 func (f *fixture) join(nick, channel string) {
-	ev := &bus.Event{Name: "IRC_JOIN", Server: "junerules", Channel: channel,
-		Extra: map[string]any{}}
+	ev := &bus.Event{Name: "IRC_JOIN", Server: "junerules", Channel: channel}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 }
 
 func (f *fixture) kick(kicker, target, channel string) {
 	ev := &bus.Event{Name: "IRC_KICK", Server: "junerules",
-		Extra: map[string]any{"channel": channel, "target": target, "reason": "out"}}
+		Channel: channel, Target: target, Reason: "out"}
 	ev.Sender.Nick = kicker
 	f.b.Submit(ev)
 }
@@ -106,7 +105,7 @@ func TestCountsLinesWordsChars(t *testing.T) {
 func TestOwnLinesAndQueriesIgnored(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: "ik tel niet mee", SenderMe: true, Extra: map[string]any{}}
+		Msg: "ik tel niet mee", SenderMe: true}
 	ev.Sender.Nick = "Meretrix"
 	f.b.Submit(ev)
 	f.msg("BenV", "BenV", "query telt niet")

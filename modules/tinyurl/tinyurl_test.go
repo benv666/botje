@@ -46,7 +46,7 @@ func newFixture(t *testing.T) *fixture {
 
 func (f *fixture) msg(text string) {
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: text, Extra: map[string]any{}}
+		Msg: text}
 	ev.Sender.Nick = "BenV"
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)

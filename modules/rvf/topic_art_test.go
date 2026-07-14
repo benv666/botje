@@ -11,7 +11,7 @@ import (
 
 func (f *fixture) join(nick, channel string) {
 	ev := &bus.Event{Name: "IRC_JOIN", Server: "junerules", Channel: channel,
-		SenderMe: strings.EqualFold(nick, "Meretrix"), Extra: map[string]any{}}
+		SenderMe: strings.EqualFold(nick, "Meretrix")}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 }
@@ -19,7 +19,7 @@ func (f *fixture) join(nick, channel string) {
 func (f *fixture) topicChange(nick, channel, topic string) {
 	ev := &bus.Event{Name: "IRC_TOPIC", Server: "junerules", Channel: channel,
 		SenderMe: strings.EqualFold(nick, "Meretrix"),
-		Extra:    map[string]any{"topic": topic}}
+		Topic:    topic}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 }

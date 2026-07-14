@@ -181,7 +181,7 @@ func (c *core) privmsg(receiver, msg string) {
 		c.bus.Submit(&bus.Event{
 			Name: "IRC_SENT", BotNick: c.cfg.Nick, Server: c.cfg.Network,
 			Sender: bus.Sender{Nick: c.cfg.Nick}, SenderMe: true,
-			Channel: receiver, Msg: part, Extra: map[string]any{},
+			Channel: receiver, Msg: part,
 		})
 	}
 }
@@ -210,7 +210,7 @@ func (c *core) shutdown() {
 	if c.conn == nil {
 		return
 	}
-	c.bus.Submit(&bus.Event{Name: "QUIT", Extra: map[string]any{}})
+	c.bus.Submit(&bus.Event{Name: "QUIT"})
 	if !c.cfg.SkipGoodbye {
 		c.conn.Write("QUIT :" + quitMsgs[rand.IntN(len(quitMsgs))])
 		time.Sleep(1500 * time.Millisecond)

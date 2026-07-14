@@ -154,12 +154,10 @@ func TestKickEvent(t *testing.T) {
 	if !ev.TargetMe {
 		t.Fatal("TargetMe not set for own kick")
 	}
-	// parity: the Perl leaves event channel unset for KICK, only extra
-	if ev.Channel != "" {
-		t.Fatalf("channel = %q, want empty (perl parity)", ev.Channel)
-	}
-	if ev.Extra["channel"] != "#testing" || ev.Extra["target"] != "Meretrix" || ev.Extra["reason"] != "begone" {
-		t.Fatalf("extra = %+v", ev.Extra)
+	// divergence from perl (which left the channel in extra only): the
+	// typed-fields refactor puts it in Channel like every other event
+	if ev.Channel != "#testing" || ev.Target != "Meretrix" || ev.Reason != "begone" {
+		t.Fatalf("kick fields = %q %q %q", ev.Channel, ev.Target, ev.Reason)
 	}
 	f.s.HandleLine(":BenV!b@h KICK #testing Someone :bye")
 	if ev := f.one(t, "IRC_KICK"); ev.TargetMe {
@@ -182,10 +180,10 @@ func TestQuitClassification(t *testing.T) {
 		f := newSess()
 		f.s.HandleLine(":Someone!x@y QUIT " + tc.params)
 		ev := f.one(t, "IRC_QUIT")
-		if ev.Extra["msg"] != tc.wantMsg {
-			t.Errorf("QUIT %q: msg = %q, want %q", tc.params, ev.Extra["msg"], tc.wantMsg)
+		if ev.Msg != tc.wantMsg {
+			t.Errorf("QUIT %q: msg = %q, want %q", tc.params, ev.Msg, tc.wantMsg)
 		}
-		gotSplit := ev.Extra["netsplit"] == 1
+		gotSplit := ev.NetSplit
 		if gotSplit != tc.netsplit {
 			t.Errorf("QUIT %q: netsplit = %v, want %v", tc.params, gotSplit, tc.netsplit)
 		}
@@ -196,7 +194,7 @@ func TestTopicTracking(t *testing.T) {
 	f := newSess()
 	f.s.HandleLine(":BenV!b@h TOPIC #testing :new topic here")
 	ev := f.one(t, "IRC_TOPIC")
-	if ev.Channel != "#testing" || ev.Extra["topic"] != "new topic here" {
+	if ev.Channel != "#testing" || ev.Topic != "new topic here" {
 		t.Fatalf("topic event = %+v", ev)
 	}
 	if got := f.s.Topic("#testing"); got != "new topic here" {
@@ -216,11 +214,11 @@ func TestModeChannelAndSelf(t *testing.T) {
 	f := newSess()
 	f.s.HandleLine(":BenV!b@h MODE #testing +o Meretrix")
 	ev := f.one(t, "IRC_MODE")
-	if ev.Channel != "#testing" || ev.TargetMe || ev.Extra["mode"] != "+o" {
+	if ev.Channel != "#testing" || ev.TargetMe || ev.Mode != "+o" {
 		t.Fatalf("mode event = %+v", ev)
 	}
-	if un, ok := ev.Extra["unparsed"].([]string); !ok || !slices.Equal(un, []string{"Meretrix"}) {
-		t.Fatalf("unparsed = %#v", ev.Extra["unparsed"])
+	if !slices.Equal(ev.Args, []string{"Meretrix"}) {
+		t.Fatalf("args = %#v", ev.Args)
 	}
 
 	f.s.HandleLine(":Meretrix MODE Meretrix :+i")
@@ -237,8 +235,8 @@ func TestErrorEmitsAndQuits(t *testing.T) {
 	f := newSess()
 	f.s.HandleLine("ERROR :Closing Link: too many hoes")
 	ev := f.one(t, "IRC_ERROR")
-	if ev.Extra["msg"] != "Closing Link: too many hoes" {
-		t.Fatalf("error msg = %q", ev.Extra["msg"])
+	if ev.Msg != "Closing Link: too many hoes" {
+		t.Fatalf("error msg = %q", ev.Msg)
 	}
 	if !slices.Equal(f.sent, []string{"QUIT :I can't deal with ERRORs, Bye bye!"}) {
 		t.Fatalf("sent = %q", f.sent)
@@ -259,7 +257,7 @@ func TestInvite(t *testing.T) {
 	f := newSess()
 	f.s.HandleLine(":BenV!b@h INVITE Meretrix :#secret")
 	ev := f.one(t, "IRC_INVITE")
-	if ev.Channel != "#secret" || !ev.TargetMe || ev.Extra["channel"] != "#secret" {
+	if ev.Channel != "#secret" || !ev.TargetMe {
 		t.Fatalf("invite event = %+v", ev)
 	}
 }

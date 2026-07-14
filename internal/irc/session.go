@@ -118,7 +118,6 @@ func (s *Session) HandleLine(raw string) {
 		Server:   s.network,
 		SenderMe: nick == s.nick,
 		Raw:      bus.RawCmd{Prefix: line.Prefix, Cmd: line.Name, Params: line.Params},
-		Extra:    map[string]any{},
 	}
 	ev.Sender.Nick, ev.Sender.User, ev.Sender.Host = nick, user, host
 
@@ -183,7 +182,7 @@ func (s *Session) emit(name string, ev *bus.Event) {
 }
 
 func (s *Session) onError(ev *bus.Event, line Line) {
-	ev.Extra["msg"] = strings.Join(SplitParams(line.Params), ", ")
+	ev.Msg = strings.Join(SplitParams(line.Params), ", ")
 	s.emit("IRC_ERROR", ev)
 	s.Send("QUIT :I can't deal with ERRORs, Bye bye!")
 }
@@ -214,7 +213,7 @@ func (s *Session) onPrivmsg(ev *bus.Event, line Line) {
 	}
 	ev.Channel = target
 	ev.Msg = msg
-	ev.Extra["unparsed"] = p[2:]
+	ev.Args = p[2:]
 	s.emit("IRC_PRIVMSG", ev)
 }
 
@@ -241,8 +240,8 @@ func (s *Session) onMode(ev *bus.Event, line Line) {
 	if ev.TargetMe {
 		s.mode = mode
 	}
-	ev.Extra["mode"] = mode
-	ev.Extra["unparsed"] = p[2:]
+	ev.Mode = mode
+	ev.Args = p[2:]
 	s.emit("IRC_MODE", ev)
 }
 
@@ -276,9 +275,10 @@ func (s *Session) onPart(ev *bus.Event, line Line) {
 	s.emit("IRC_PART", ev)
 }
 
-// onKick emits kicks. Perl parity: the channel travels in extra only,
-// the event channel field stays empty, and being kicked does not drop
-// the channel from tracking.
+// onKick emits kicks with the channel in Channel (a deliberate
+// divergence: the Perl left the event channel unset for KICK and hid
+// it in extra). Being kicked does not drop the channel from tracking,
+// same as the Perl.
 func (s *Session) onKick(ev *bus.Event, line Line) {
 	p := SplitParams(line.Params)
 	if len(p) < 2 {
@@ -290,9 +290,9 @@ func (s *Session) onKick(ev *bus.Event, line Line) {
 		reason = p[2]
 	}
 	ev.TargetMe = target == s.nick
-	ev.Extra["channel"] = channel
-	ev.Extra["target"] = target
-	ev.Extra["reason"] = reason
+	ev.Channel = channel
+	ev.Target = target
+	ev.Reason = reason
 	s.emit("IRC_KICK", ev)
 }
 
@@ -303,7 +303,6 @@ func (s *Session) onInvite(ev *bus.Event, line Line) {
 	}
 	ev.Channel = p[1]
 	ev.TargetMe = true // always us
-	ev.Extra["channel"] = p[1]
 	s.emit("IRC_INVITE", ev)
 }
 
@@ -318,16 +317,16 @@ func (s *Session) onQuit(ev *bus.Event, line Line) {
 	lower := strings.ToLower(msg)
 	switch {
 	case strings.HasPrefix(lower, "quit:"):
-		ev.Extra["msg"] = strings.TrimLeft(msg[len("quit:"):], " \t")
+		ev.Msg = strings.TrimLeft(msg[len("quit:"):], " \t")
 	case strings.HasPrefix(lower, "ping timeout"):
-		ev.Extra["msg"] = msg[:len("Ping timeout")]
+		ev.Msg = msg[:len("Ping timeout")]
 	case strings.HasPrefix(lower, "eof"):
-		ev.Extra["msg"] = msg
+		ev.Msg = msg
 	case netsplitRe.MatchString(msg):
-		ev.Extra["msg"] = msg
-		ev.Extra["netsplit"] = 1
+		ev.Msg = msg
+		ev.NetSplit = true
 	default:
-		ev.Extra["msg"] = msg
+		ev.Msg = msg
 	}
 	s.emit("IRC_QUIT", ev)
 }
@@ -344,7 +343,7 @@ func (s *Session) onTopic(ev *bus.Event, line Line) {
 		s.channels[channel] = &channelState{topic: topic}
 	}
 	ev.Channel = channel
-	ev.Extra["topic"] = topic
+	ev.Topic = topic
 	s.emit("IRC_TOPIC", ev)
 }
 

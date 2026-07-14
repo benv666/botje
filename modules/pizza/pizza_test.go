@@ -55,7 +55,7 @@ func (f *fixture) pizza(nick, data string) {
 		msg += " " + data
 	}
 	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: "#testing",
-		Msg: msg, Extra: map[string]any{}}
+		Msg: msg}
 	ev.Sender.Nick = nick
 	f.b.Submit(ev)
 	f.cmds.Handle(ev)
