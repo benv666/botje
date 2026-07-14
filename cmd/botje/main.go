@@ -38,6 +38,7 @@ import (
 	"go-botje/modules/pizza"
 	"go-botje/modules/remind"
 	"go-botje/modules/rss"
+	"go-botje/modules/rvf"
 	"go-botje/modules/stats"
 	"go-botje/modules/ticker"
 	"go-botje/modules/tinyurl"
@@ -355,6 +356,11 @@ func modules() []module.Module {
 		lastseen.New(),
 		llm.New(),
 		logger.New(),
+		// rvf loads before markov on purpose: bus hooks run in
+		// registration order, and rvf returns Stop for live-game input
+		// so markov neither learns letter spam nor query-talks at a
+		// player mid-game
+		rvf.New(),
 		markov.New(),
 		pacman.New(),
 		pizza.New(),

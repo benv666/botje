@@ -1,0 +1,111 @@
+# Wheel of Fortune puzzles, english. Format: Category: puzzle
+# ASCII only, the engine uppercases.
+Phrase: The early bird catches the worm
+Phrase: A picture is worth a thousand words
+Phrase: Actions speak louder than words
+Phrase: All that glitters is not gold
+Phrase: An apple a day keeps the doctor away
+Phrase: Barking up the wrong tree
+Phrase: Beating around the bush
+Phrase: Better late than never
+Phrase: Birds of a feather flock together
+Phrase: Bite the bullet
+Phrase: Break the ice
+Phrase: Burning the midnight oil
+Phrase: Curiosity killed the cat
+Phrase: Every cloud has a silver lining
+Phrase: Fortune favors the bold
+Phrase: A penny for your thoughts
+Phrase: Hit the nail on the head
+Phrase: Honesty is the best policy
+Phrase: It takes two to tango
+Phrase: Kill two birds with one stone
+Phrase: Let sleeping dogs lie
+Phrase: Practice makes perfect
+Phrase: Rome was not built in a day
+Phrase: The ball is in your court
+Phrase: The best of both worlds
+Phrase: The grass is always greener on the other side
+Phrase: The pot calling the kettle black
+Phrase: A piece of cake
+Phrase: Once in a blue moon
+Phrase: Out of the frying pan into the fire
+Phrase: Speak of the devil
+Phrase: Strike while the iron is hot
+Phrase: The apple does not fall far from the tree
+Phrase: The squeaky wheel gets the grease
+Phrase: There is no place like home
+Phrase: Time flies when you are having fun
+Phrase: Too many cooks spoil the broth
+Phrase: Two heads are better than one
+Phrase: When in rome do as the romans do
+Phrase: When pigs fly
+Phrase: You cannot judge a book by its cover
+Phrase: A blessing in disguise
+Phrase: It costs an arm and a leg
+Phrase: Down to the wire
+Phrase: Under the weather
+Phrase: Off the beaten track
+Phrase: The calm before the storm
+Phrase: Every dog has its day
+Phrase: Look before you leap
+Phrase: Absence makes the heart grow fonder
+Thing: A needle in a haystack
+Thing: A message in a bottle
+Thing: The light at the end of the tunnel
+Thing: A grandfather clock
+Thing: A pot of gold at the end of the rainbow
+Thing: A double decker bus
+Thing: The remote control under the couch
+Thing: A rusty garden gate
+Thing: A squeaky wheelbarrow
+Thing: An umbrella on a rainy day
+Person: Sherlock holmes
+Person: William shakespeare
+Person: Albert einstein
+Person: Isaac newton
+Person: Charlie chaplin
+Person: Winston churchill
+Person: Robin hood
+Person: King arthur
+Person: Elvis presley
+Person: Marilyn monroe
+Place: The leaning tower of pisa
+Place: The grand canyon
+Place: The great wall of china
+Place: Buckingham palace
+Place: The statue of liberty
+Place: Times square
+Place: The eiffel tower
+Place: Loch ness
+Place: Mount everest
+Place: The north pole
+Event: The olympic games
+Event: The changing of the guard
+Event: A total solar eclipse
+Event: The boston tea party
+Event: The moon landing
+Event: The running of the bulls
+Food and Drink: Fish and chips
+Food and Drink: Bangers and mash
+Food and Drink: A full english breakfast
+Food and Drink: Peanut butter and jelly sandwich
+Food and Drink: Spaghetti and meatballs
+Food and Drink: A cup of earl grey tea
+Food and Drink: Apple pie with ice cream
+Food and Drink: Bubble and squeak
+Title: Gone with the wind
+Title: The lord of the rings
+Title: Pride and prejudice
+Title: The wizard of oz
+Title: Romeo and juliet
+Title: A tale of two cities
+Title: The great gatsby
+Title: Alice in wonderland
+Title: Treasure island
+Title: Moby dick
+Occupation: Lighthouse keeper
+Occupation: Chimney sweep
+Occupation: Air traffic controller
+Occupation: Deep sea diver
+Occupation: Private detective
