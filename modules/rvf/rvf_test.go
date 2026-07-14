@@ -100,7 +100,7 @@ func (f *fixture) startGame(channel, players string) {
 
 func TestStartAnnouncesBoardAndTurn(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	out := f.all()
 	if !strings.Contains(out, "[Spreekwoord]") {
 		t.Fatalf("no category: %q", out)
@@ -115,16 +115,16 @@ func TestStartAnnouncesBoardAndTurn(t *testing.T) {
 
 func TestFullChannelGame(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
 
 	// BenV spins fl. 1000 (wheel index 20) and calls the T: 7x = 7000
 	f.rolls = []int{20}
-	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#radvanfortuin", "draai")
 	if out := f.all(); !strings.Contains(out, "fl. 1000") || !strings.Contains(out, "medeklinker") {
 		t.Fatalf("spin reply: %q", out)
 	}
-	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#radvanfortuin", "t")
 	out := f.all()
 	if !strings.Contains(out, "7x T") || !strings.Contains(out, "fl. 7000") {
 		t.Fatalf("hit reply: %q", out)
@@ -135,12 +135,12 @@ func TestFullChannelGame(t *testing.T) {
 	}
 
 	// buys the E (4x), then solves
-	f.msg("BenV", "#testing", "koop e")
+	f.msg("BenV", "#radvanfortuin", "koop e")
 	if out := f.all(); !strings.Contains(out, "4x E") {
 		t.Fatalf("vowel reply: %q", out)
 	}
 	f.rolls = []int{0} // art variant
-	f.msg("BenV", "#testing", "los op: wie het laatst lacht, lacht het best")
+	f.msg("BenV", "#radvanfortuin", "los op: wie het laatst lacht, lacht het best")
 	out = f.all()
 	if !strings.Contains(out, "JUIST") || !strings.Contains(out, "fl. 6750") {
 		t.Fatalf("win reply: %q", out)
@@ -150,13 +150,13 @@ func TestFullChannelGame(t *testing.T) {
 	}
 
 	// the game is gone: new input is ignored
-	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#radvanfortuin", "draai")
 	if out := f.all(); out != "" {
 		t.Fatalf("dead game still replies: %q", out)
 	}
 
 	// and the leaderboard has the entry
-	f.msg("Lotjuh", "#testing", "!top10")
+	f.msg("Lotjuh", "#radvanfortuin", "!top10")
 	if out := f.all(); !strings.Contains(out, "BenV") || !strings.Contains(out, "fl. 6750") {
 		t.Fatalf("top10: %q", out)
 	}
@@ -164,23 +164,23 @@ func TestFullChannelGame(t *testing.T) {
 
 func TestMissPassesTurnToNextPlayer(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
 	f.rolls = []int{20}
-	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#radvanfortuin", "draai")
 	f.take()
-	f.msg("BenV", "#testing", "z")
+	f.msg("BenV", "#radvanfortuin", "z")
 	out := f.all()
 	if !strings.Contains(out, "Geen Z") || !strings.Contains(out, "{B}{b}Lotjuh{/} is aan de beurt") {
 		t.Fatalf("miss reply: %q", out)
 	}
 	// now BenV's input is ignored, Lotjuh's counts
-	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#radvanfortuin", "draai")
 	if out := f.all(); out != "" {
 		t.Fatalf("not-your-turn input replied: %q", out)
 	}
 	f.rolls = []int{20}
-	f.msg("Lotjuh", "#testing", "draai")
+	f.msg("Lotjuh", "#radvanfortuin", "draai")
 	if out := f.all(); !strings.Contains(out, "Lotjuh") {
 		t.Fatalf("current player ignored: %q", out)
 	}
@@ -245,7 +245,7 @@ func TestQuerySoloGameAndStopPropagation(t *testing.T) {
 
 func TestTurnTimeoutAndAbort(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
 
 	f.clk = f.clk.Add(91 * time.Second)
@@ -276,7 +276,7 @@ func TestTurnTimeoutAndAbort(t *testing.T) {
 
 func TestMoveResetsTimeoutCounter(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
 	// two timeouts, then a real move, then two more: no abort (never 3
 	// consecutive)
@@ -285,7 +285,7 @@ func TestMoveResetsTimeoutCounter(t *testing.T) {
 		f.sch.RunDue()
 	}
 	f.take()
-	f.msg("BenV", "#testing", "pas")
+	f.msg("BenV", "#radvanfortuin", "pas")
 	f.take()
 	for i := 0; i < 2; i++ {
 		f.clk = f.clk.Add(91 * time.Second)
@@ -295,21 +295,21 @@ func TestMoveResetsTimeoutCounter(t *testing.T) {
 	if strings.Contains(out, "spel gestopt") {
 		t.Fatalf("aborted despite the counter reset: %q", out)
 	}
-	if _, ok := f.m.games[gameKey("junerules", "#testing")]; !ok {
+	if _, ok := f.m.games[gameKey("junerules", "#radvanfortuin")]; !ok {
 		t.Fatal("game should still be alive")
 	}
 }
 
 func TestStopCommand(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
 	// a non-player cannot stop it
-	f.msg("Verty", "#testing", "!stop")
+	f.msg("Verty", "#radvanfortuin", "!stop")
 	if out := f.all(); !strings.Contains(out, "Alleen spelers") {
 		t.Fatalf("non-player stop: %q", out)
 	}
-	f.msg("Lotjuh", "#testing", "!stop")
+	f.msg("Lotjuh", "#radvanfortuin", "!stop")
 	out := f.all()
 	if !strings.Contains(out, "Spel gestopt") || !strings.Contains(out, "WIE HET LAATST LACHT") {
 		t.Fatalf("stop: %q", out)
@@ -318,9 +318,9 @@ func TestStopCommand(t *testing.T) {
 
 func TestStartRefusedWhileGameRuns(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV")
+	f.startGame("#radvanfortuin", "BenV")
 	f.take()
-	f.msg("Lotjuh", "#testing", "!start Lotjuh")
+	f.msg("Lotjuh", "#radvanfortuin", "!start Lotjuh")
 	if out := f.all(); !strings.Contains(out, "al een spel") {
 		t.Fatalf("second start: %q", out)
 	}
@@ -329,10 +329,10 @@ func TestStartRefusedWhileGameRuns(t *testing.T) {
 func TestGameSurvivesRestart(t *testing.T) {
 	store := storage.NewMemory()
 	f := newFixture(t, store)
-	f.startGame("#testing", "BenV,Lotjuh")
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.rolls = []int{20}
-	f.msg("BenV", "#testing", "draai")
-	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#radvanfortuin", "draai")
+	f.msg("BenV", "#radvanfortuin", "t")
 	f.take()
 
 	// "restart": flush the dirty state, then a fresh module on the store
@@ -340,7 +340,7 @@ func TestGameSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	f2 := newFixture(t, store)
-	g := f2.m.games[gameKey("junerules", "#testing")]
+	g := f2.m.games[gameKey("junerules", "#radvanfortuin")]
 	if g == nil {
 		t.Fatal("game not restored")
 	}
@@ -349,12 +349,12 @@ func TestGameSurvivesRestart(t *testing.T) {
 	}
 	// play on through the restored module
 	f2.rolls = []int{0} // art variant
-	f2.msg("BenV", "#testing", "los op: wie het laatst lacht lacht het best")
+	f2.msg("BenV", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
 	if out := f2.all(); !strings.Contains(out, "JUIST") {
 		t.Fatalf("restored game not playable: %q", out)
 	}
 	// and its turn timer was re-armed
-	f2.startGame("#testing", "BenV")
+	f2.startGame("#radvanfortuin", "BenV")
 	f2.take()
 	f2.clk = f2.clk.Add(91 * time.Second)
 	f2.sch.RunDue()
@@ -387,7 +387,7 @@ func TestTelnetAddDelList(t *testing.T) {
 	// the added puzzle is at the end of the pool: script the roll there
 	pool := f.m.pool("nl")
 	f.rolls = []int{len(pool) - 1}
-	f.msg("BenV", "#testing", "!start")
+	f.msg("BenV", "#radvanfortuin", "!start")
 	if out := f.all(); !strings.Contains(out, "[Gezegde]") {
 		t.Fatalf("extra puzzle not in pool: %q", out)
 	}
@@ -401,28 +401,28 @@ func TestHiscoreOrdering(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	// game 1: Lotjuh wins small (fl. 50 spin, 7x T = 350)
 	f.rolls = []int{0}
-	f.msg("Lotjuh", "#testing", "!start Lotjuh")
+	f.msg("Lotjuh", "#radvanfortuin", "!start Lotjuh")
 	f.rolls = []int{0} // wheel index 0 = fl. 50
-	f.msg("Lotjuh", "#testing", "draai")
-	f.msg("Lotjuh", "#testing", "t")
+	f.msg("Lotjuh", "#radvanfortuin", "draai")
+	f.msg("Lotjuh", "#radvanfortuin", "t")
 	f.rolls = []int{0} // art variant
-	f.msg("Lotjuh", "#testing", "los op: wie het laatst lacht lacht het best")
+	f.msg("Lotjuh", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
 	f.take()
 
 	// game 2: BenV wins big (fl. 1000 spin, 7x T = 7000)
 	f.rolls = []int{0}
-	f.msg("BenV", "#testing", "!start BenV")
+	f.msg("BenV", "#radvanfortuin", "!start BenV")
 	f.rolls = []int{20}
-	f.msg("BenV", "#testing", "draai")
-	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#radvanfortuin", "draai")
+	f.msg("BenV", "#radvanfortuin", "t")
 	f.rolls = []int{3} // art variant
-	f.msg("BenV", "#testing", "los op: wie het laatst lacht lacht het best")
+	f.msg("BenV", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
 	out := f.all()
 	if !strings.Contains(out, "Plek 1") {
 		t.Fatalf("the bigger win should enter at position 1: %q", out)
 	}
 
-	f.msg("Verty", "#testing", "!top10")
+	f.msg("Verty", "#radvanfortuin", "!top10")
 	out = f.all()
 	benv, lotjuh := strings.Index(out, "BenV"), strings.Index(out, "Lotjuh")
 	if benv < 0 || lotjuh < 0 || benv > lotjuh {
@@ -430,12 +430,80 @@ func TestHiscoreOrdering(t *testing.T) {
 	}
 }
 
+// channel games only run in the dedicated game channels; queries are
+// always fine.
+func TestStartRefusedOutsideGameChannels(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	for _, start := range []string{"!start", "!rvf"} {
+		f.msg("BenV", "#testing", start)
+		out := f.all()
+		if !strings.Contains(out, "#radvanfortuin") {
+			t.Fatalf("%s in #testing should point at the game channels: %q", start, out)
+		}
+		if len(f.m.games) != 0 {
+			t.Fatalf("%s created a game outside the game channels", start)
+		}
+	}
+}
+
+// !rvf starts a game too (Bram-in-query ergonomics), and query games
+// are always solo: only the query owner can ever speak there, so a
+// player list would deadlock on the first turn pass.
+func TestRvfAliasAndQuerySolo(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.rolls = []int{0}
+	f.query("BenV", "!rvf")
+	if out := f.all(); !strings.Contains(out, "[Spreekwoord]") {
+		t.Fatalf("!rvf in query: %q", out)
+	}
+	g := f.m.games[gameKey("junerules", "BenV")]
+	if g == nil || len(g.Players) != 1 {
+		t.Fatalf("query game players = %+v", g)
+	}
+	f.msg("BenV", "BenV", "!stop") // cleanup via the query channel key
+	f.take()
+
+	f.rolls = []int{0}
+	f.query("BenV", "!start Bram,Piet")
+	f.take()
+	g = f.m.games[gameKey("junerules", "BenV")]
+	if g == nil || len(g.Players) != 1 || !g.IsCurrent("BenV") {
+		t.Fatalf("query start with a player list should force solo: %+v", g)
+	}
+}
+
+// query timeouts stay quiet (no "zit te slapen" spam at yourself); the
+// final abort still reveals the solution.
+func TestQueryTimeoutSilent(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.rolls = []int{0}
+	f.query("BenV", "!start")
+	f.take()
+
+	for i := 0; i < 2; i++ {
+		f.clk = f.clk.Add(91 * time.Second)
+		f.sch.RunDue()
+		if out := f.all(); out != "" {
+			t.Fatalf("query timeout %d spoke up: %q", i+1, out)
+		}
+	}
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	out := f.all()
+	if !strings.Contains(out, "WIE HET LAATST LACHT") {
+		t.Fatalf("query abort should reveal the solution: %q", out)
+	}
+	if _, ok := f.m.games[gameKey("junerules", "BenV")]; ok {
+		t.Fatal("expired query game not cleaned up")
+	}
+}
+
 func TestSpinFirstHint(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "BenV")
+	f.startGame("#radvanfortuin", "BenV")
 	f.take()
 	f.rolls = []int{1} // fun-line variant
-	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#radvanfortuin", "t")
 	if out := f.all(); !strings.Contains(out, "draai") {
 		t.Fatalf("letter before spin: %q", out)
 	}

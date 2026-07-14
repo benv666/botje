@@ -83,6 +83,7 @@ func (m *Module) Load(ctx *module.Context) error {
 	ctx.Conf.CreateString("rvf_channels_en", "#wheeloffortune")
 
 	ctx.Cmd.Register(m.Name(), "start", m.cbStart)
+	ctx.Cmd.Register(m.Name(), "rvf", m.cbStart) // query ergonomics: !rvf works too
 	ctx.Cmd.Register(m.Name(), "stop", m.cbStop)
 	ctx.Cmd.Register(m.Name(), "top10", m.cbTop10)
 	for event, hook := range map[string]bus.Handler{
@@ -145,15 +146,22 @@ func (m *Module) langFor(channel string) string {
 	return "nl"
 }
 
-// ownedChannel reports whether this is one of the dedicated game
-// channels (conf rvf_channels_nl + rvf_channels_en) whose topic the
-// bot keeps.
-func (m *Module) ownedChannel(channel string) bool {
+// gameChannels lists the dedicated game channels (nl + en lists).
+func (m *Module) gameChannels() []string {
+	var out []string
 	for _, setting := range []string{"rvf_channels_nl", "rvf_channels_en"} {
-		for _, ch := range splitChans(m.ctx.Conf.String(setting)) {
-			if strings.EqualFold(ch, channel) {
-				return true
-			}
+		out = append(out, splitChans(m.ctx.Conf.String(setting))...)
+	}
+	return out
+}
+
+// ownedChannel reports whether this is one of the dedicated game
+// channels: the bot keeps their topic, and channel games only run
+// there.
+func (m *Module) ownedChannel(channel string) bool {
+	for _, ch := range m.gameChannels() {
+		if strings.EqualFold(ch, channel) {
+			return true
 		}
 	}
 	return false
@@ -217,24 +225,35 @@ func (m *Module) turnLine(g *Game) string {
 	return line + fmt.Sprintf(t.turnActions, t.money(cost))
 }
 
-// cbStart begins a game: !start nick1,nick2,... (bare !start = solo).
+// cbStart begins a game (also registered as !rvf): !start nick1,nick2
+// in a game channel, or solo. Queries are always solo: only the query
+// owner can ever speak in that "channel", so a player list would
+// deadlock on the first turn pass.
 func (m *Module) cbStart(d *cmd.Data) bool {
 	ev := d.Event
 	key := gameKey(ev.Server, ev.Channel)
 	lang := m.langFor(ev.Channel)
 	t := langs[lang]
+	if !ev.Query && !m.ownedChannel(ev.Channel) {
+		m.ctx.Privmsg(ev.Channel, fmt.Sprintf(t.notHere, strings.Join(m.gameChannels(), " / ")))
+		return true
+	}
 	if g, ok := m.games[key]; ok && !g.Done {
 		m.ctx.Privmsg(ev.Channel, t.alreadyGame)
 		return true
 	}
 	var nicks []string
-	for _, n := range strings.FieldsFunc(d.Data, func(r rune) bool { return r == ',' || r == ' ' }) {
-		if len(n) > 30 {
-			m.ctx.Privmsg(ev.Channel, t.sillyNick)
-			return true
-		}
-		if !slices.ContainsFunc(nicks, func(have string) bool { return strings.EqualFold(have, n) }) {
-			nicks = append(nicks, n)
+	if ev.Query {
+		nicks = []string{ev.Sender.Nick}
+	} else {
+		for _, n := range strings.FieldsFunc(d.Data, func(r rune) bool { return r == ',' || r == ' ' }) {
+			if len(n) > 30 {
+				m.ctx.Privmsg(ev.Channel, t.sillyNick)
+				return true
+			}
+			if !slices.ContainsFunc(nicks, func(have string) bool { return strings.EqualFold(have, n) }) {
+				nicks = append(nicks, n)
+			}
 		}
 	}
 	if len(nicks) > 8 {
@@ -251,6 +270,7 @@ func (m *Module) cbStart(d *cmd.Data) bool {
 	}
 	p := pool[m.rollN(len(pool))]
 	g := NewGame(lang, p.Category, p.Text, nicks)
+	g.Query = ev.Query
 	m.games[key] = g
 	m.saveGames()
 	m.armTimer(key)
@@ -349,7 +369,11 @@ func (m *Module) turnTimeout(key string) {
 	g.Pass()
 	m.saveGames()
 	m.armTimer(key)
-	m.ctx.Privmsg(channel, fmt.Sprintf(t.timeout, slept)+"\n"+m.turnLine(g))
+	// a solo query player does not need to hear they are asleep; the
+	// abort above still reveals the solution when they never come back
+	if !g.Query {
+		m.ctx.Privmsg(channel, fmt.Sprintf(t.timeout, slept)+"\n"+m.turnLine(g))
+	}
 }
 
 // channelOf recovers the channel part of a game key (lowercased, which
