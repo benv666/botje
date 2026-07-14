@@ -378,3 +378,72 @@ func TestRunawayGenerationCapped(t *testing.T) {
 		t.Fatalf("runaway generation: %d words", len(words))
 	}
 }
+
+// every talker learns into their own dictionary too: !talklike speaks
+// from that dict only.
+func TestTalkLike(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("Bram", "#testing", "kaas is heerlijk.")
+	f.msg("Willow", "#testing", "thee is beter.")
+
+	f.msg("BenV", "#testing", "!talklike bram kaas")
+	got := f.take()
+	if len(got) != 1 || got[0] != "#testing|Kaas is heerlijk." {
+		t.Fatalf("talklike bram = %q", got)
+	}
+	// nick lookup is case-insensitive
+	f.msg("BenV", "#testing", "!talklike WILLOW thee")
+	got = f.take()
+	if len(got) != 1 || got[0] != "#testing|Thee is beter." {
+		t.Fatalf("talklike WILLOW = %q", got)
+	}
+	// an unknown nick explains itself
+	f.msg("BenV", "#testing", "!talklike niemand")
+	got = f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "niks geleerd") {
+		t.Fatalf("talklike unknown = %q", got)
+	}
+	// and bare !talklike gives usage
+	f.msg("BenV", "#testing", "!talklike")
+	if got := f.take(); len(got) != 1 || !strings.Contains(got[0], "Gebruik") {
+		t.Fatalf("talklike usage = %q", got)
+	}
+}
+
+// nick dictionaries persist as their own rows and load back grouped.
+func TestNickDictsPersistAcrossLoads(t *testing.T) {
+	store := storage.NewMemory()
+	f := newFixture(t, store)
+	f.msg("Bram", "#testing", "kaas is heerlijk.")
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
+	}
+
+	f2 := newFixture(t, store)
+	f2.msg("BenV", "#testing", "!talklike bram kaas")
+	got := f2.take()
+	if len(got) != 1 || got[0] != "#testing|Kaas is heerlijk." {
+		t.Fatalf("restored talklike = %q", got)
+	}
+	// the global dict learned the same line
+	f2.msg("BenV", "#testing", "!talk kaas")
+	if got := f2.take(); len(got) != 1 || got[0] != "#testing|Kaas is heerlijk." {
+		t.Fatalf("restored global talk = %q", got)
+	}
+}
+
+// LearnLine is the offline entry point for the bvs bootstrap: same
+// sanitizer, same windows, counts land in the passed chains.
+func TestLearnLineOffline(t *testing.T) {
+	chains := make(map[string]*Node)
+	touched := LearnLine(chains, 1, "aap noot mies.")
+	if len(touched) == 0 {
+		t.Fatal("no touched words")
+	}
+	if chains["aap"] == nil || chains["aap"].Children["noot"] == nil {
+		t.Fatalf("chains = %+v", chains)
+	}
+	if chains["aap"].Count != 1 || chains["aap"].Children["noot"].Count != 1 {
+		t.Fatalf("counts off: %+v", chains["aap"])
+	}
+}
