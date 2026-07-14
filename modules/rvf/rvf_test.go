@@ -174,10 +174,10 @@ func TestMissPassesTurnToNextPlayer(t *testing.T) {
 	if !strings.Contains(out, "Geen Z") || !strings.Contains(out, "{B}{b}Lotjuh{/} is aan de beurt") {
 		t.Fatalf("miss reply: %q", out)
 	}
-	// now BenV's input is ignored, Lotjuh's counts
+	// now BenV's game moves get the out-of-turn nudge
 	f.msg("BenV", "#radvanfortuin", "draai")
-	if out := f.all(); out != "" {
-		t.Fatalf("not-your-turn input replied: %q", out)
+	if out := f.all(); !strings.Contains(out, "Rustig") || !strings.Contains(out, "Lotjuh") {
+		t.Fatalf("not-your-turn nudge: %q", out)
 	}
 	f.rolls = []int{20}
 	f.msg("Lotjuh", "#radvanfortuin", "draai")
@@ -243,11 +243,14 @@ func TestQuerySoloGameAndStopPropagation(t *testing.T) {
 	}
 }
 
-func TestTurnTimeoutAndAbort(t *testing.T) {
+// an AFK player is dropped after missing their own turns; the game
+// continues for whoever is left and only ends when nobody is.
+func TestAfkPlayerDroppedGameContinues(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
 
+	// BenV misses turn 1 -> pass; Lotjuh misses turn 1 -> pass
 	f.clk = f.clk.Add(91 * time.Second)
 	f.sch.RunDue()
 	out := f.all()
@@ -256,13 +259,41 @@ func TestTurnTimeoutAndAbort(t *testing.T) {
 	}
 	f.clk = f.clk.Add(91 * time.Second)
 	f.sch.RunDue()
-	if out := f.all(); !strings.Contains(out, "Lotjuh") {
-		t.Fatalf("timeout 2: %q", out)
-	}
-	// third consecutive timeout aborts and reveals the solution
+	f.take()
+	// BenV misses his second turn: dropped, Lotjuh plays on
 	f.clk = f.clk.Add(91 * time.Second)
 	f.sch.RunDue()
 	out = f.all()
+	if !strings.Contains(out, "doet niet meer mee") || !strings.Contains(out, "{B}{b}Lotjuh{/} is aan de beurt") {
+		t.Fatalf("drop: %q", out)
+	}
+	g := f.m.games[gameKey("junerules", "#radvanfortuin")]
+	if g == nil || len(g.Players) != 1 || !g.IsCurrent("Lotjuh") {
+		t.Fatalf("game after drop: %+v", g)
+	}
+	// the survivor can still play and win
+	f.rolls = []int{20}
+	f.msg("Lotjuh", "#radvanfortuin", "draai")
+	f.msg("Lotjuh", "#radvanfortuin", "t")
+	f.take()
+	f.rolls = []int{0}
+	f.msg("Lotjuh", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
+	if out := f.all(); !strings.Contains(out, "JUIST") {
+		t.Fatalf("survivor cannot win: %q", out)
+	}
+}
+
+// when the last player is dropped too, the game ends with the reveal.
+func TestAllPlayersDroppedAborts(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#radvanfortuin", "BenV")
+	f.take()
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	f.take() // miss 1
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	out := f.all()
 	if !strings.Contains(out, "spel gestopt") || !strings.Contains(out, "WIE HET LAATST LACHT") {
 		t.Fatalf("abort: %q", out)
 	}
@@ -274,12 +305,13 @@ func TestTurnTimeoutAndAbort(t *testing.T) {
 	}
 }
 
-func TestMoveResetsTimeoutCounter(t *testing.T) {
+// a move resets that player's missed-turn counter.
+func TestMoveResetsMissedTurns(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.startGame("#radvanfortuin", "BenV,Lotjuh")
 	f.take()
-	// two timeouts, then a real move, then two more: no abort (never 3
-	// consecutive)
+	// BenV misses once, Lotjuh misses once, then BenV plays: his
+	// counter resets, so his next miss is again only his "first"
 	for i := 0; i < 2; i++ {
 		f.clk = f.clk.Add(91 * time.Second)
 		f.sch.RunDue()
@@ -287,16 +319,23 @@ func TestMoveResetsTimeoutCounter(t *testing.T) {
 	f.take()
 	f.msg("BenV", "#radvanfortuin", "pas")
 	f.take()
-	for i := 0; i < 2; i++ {
-		f.clk = f.clk.Add(91 * time.Second)
-		f.sch.RunDue()
-	}
+	// Lotjuh misses a second time: dropped; BenV (reset) plays on
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
 	out := f.all()
-	if strings.Contains(out, "spel gestopt") {
-		t.Fatalf("aborted despite the counter reset: %q", out)
+	if !strings.Contains(out, "doet niet meer mee") {
+		t.Fatalf("second miss should drop Lotjuh: %q", out)
 	}
-	if _, ok := f.m.games[gameKey("junerules", "#radvanfortuin")]; !ok {
-		t.Fatal("game should still be alive")
+	g := f.m.games[gameKey("junerules", "#radvanfortuin")]
+	if g == nil || len(g.Players) != 1 || !g.IsCurrent("BenV") {
+		t.Fatalf("game after Lotjuh drop: %+v", g)
+	}
+	// BenV misses again: only miss #1 after the reset, still in
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	f.take()
+	if g := f.m.games[gameKey("junerules", "#radvanfortuin")]; g == nil {
+		t.Fatal("BenV dropped despite the counter reset")
 	}
 }
 
@@ -480,13 +519,12 @@ func TestQueryTimeoutSilent(t *testing.T) {
 	f.query("BenV", "!start")
 	f.take()
 
-	for i := 0; i < 2; i++ {
-		f.clk = f.clk.Add(91 * time.Second)
-		f.sch.RunDue()
-		if out := f.all(); out != "" {
-			t.Fatalf("query timeout %d spoke up: %q", i+1, out)
-		}
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	if out := f.all(); out != "" {
+		t.Fatalf("query timeout spoke up: %q", out)
 	}
+	// second miss drops the only player: reveal and clean up
 	f.clk = f.clk.Add(91 * time.Second)
 	f.sch.RunDue()
 	out := f.all()
@@ -542,5 +580,29 @@ func TestRestoredNickKeyGameIsQuery(t *testing.T) {
 	}
 	if g := f.m.games["junerules #radvanfortuin"]; g == nil || g.Query {
 		t.Fatalf("channel game wrongly marked query: %+v", g)
+	}
+}
+
+// a PLAYER using game verbs out of turn gets a nudge (Bram shouting
+// DRAAI at a game stuck on BenV's turn, 2026-07-14); spectators and
+// plain chatter stay ignored.
+func TestNotYourTurnNudge(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#radvanfortuin", "BenV,Lotjuh")
+	f.take()
+	f.msg("Lotjuh", "#radvanfortuin", "DRAAI")
+	out := f.all()
+	if !strings.Contains(out, "{B}{b}BenV{/}") || !strings.Contains(out, "beurt") {
+		t.Fatalf("player nudge: %q", out)
+	}
+	// plain chatter from the same player: silence
+	f.msg("Lotjuh", "#radvanfortuin", "kutspel!")
+	if out := f.all(); out != "" {
+		t.Fatalf("chatter answered: %q", out)
+	}
+	// a spectator using game verbs: silence too
+	f.msg("Verty", "#radvanfortuin", "draai")
+	if out := f.all(); out != "" {
+		t.Fatalf("spectator answered: %q", out)
 	}
 }

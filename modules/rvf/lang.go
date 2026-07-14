@@ -37,6 +37,8 @@ type texts struct {
 	solveWrong               string
 	hiscoreEntry             string // position
 	timeout                  string // nick
+	dropped                  string // nick
+	notYourTurn              string // current nick
 	aborted                  string // solution
 	stopped                  string // solution
 	alreadyGame              string
@@ -92,6 +94,8 @@ var langs = map[string]*texts{
 		solveWrong:   "{r}Helaas, dat is het niet.{/}",
 		hiscoreEntry: " {c}Plek %d in de toptien!{/}",
 		timeout:      "{B}{b}%s{/} zit te slapen, de beurt gaat voorbij.",
+		dropped:      "{B}{b}%s{/} doet niet meer mee (blijft maar slapen).",
+		notYourTurn:  "Rustig, {B}{b}%s{/} is aan de beurt.",
 		aborted:      "Niemand doet meer mee, spel gestopt. De oplossing was: {y}%s{/}",
 		stopped:      "Spel gestopt. De oplossing was: {y}%s{/}",
 		alreadyGame:  "Er loopt hier al een spel (probeer {y}!stop{/}).",
@@ -146,6 +150,8 @@ var langs = map[string]*texts{
 		solveWrong:   "{r}Sorry, that is not it.{/}",
 		hiscoreEntry: " {c}Number %d on the leaderboard!{/}",
 		timeout:      "{B}{b}%s{/} fell asleep, moving on.",
+		dropped:      "{B}{b}%s{/} is out (keeps sleeping).",
+		notYourTurn:  "Easy, it is {B}{b}%s{/}'s turn.",
 		aborted:      "Nobody is playing, game over. The answer was: {y}%s{/}",
 		stopped:      "Game stopped. The answer was: {y}%s{/}",
 		alreadyGame:  "There is already a game here (try {y}!stop{/}).",

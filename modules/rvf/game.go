@@ -1,6 +1,9 @@
 package rvf
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // SegmentKind is what a wheel segment does.
 type SegmentKind int
@@ -71,9 +74,10 @@ type SpinFX struct {
 
 // Player is one contestant.
 type Player struct {
-	Nick  string `json:"nick"`
-	Money int    `json:"money"` // round money
-	Joker bool   `json:"joker"`
+	Nick   string `json:"nick"`
+	Money  int    `json:"money"` // round money
+	Joker  bool   `json:"joker"`
+	Missed int    `json:"missed"` // consecutive own turns slept through
 }
 
 // Game is one puzzle being played in one channel (or query). All state
@@ -86,9 +90,8 @@ type Game struct {
 	Players  []*Player       `json:"players"`
 	Turn     int             `json:"turn"`
 	State    GameState       `json:"state"`
-	Pending  int             `json:"pending"`  // spun amount awaiting a consonant
-	Timeouts int             `json:"timeouts"` // consecutive, for the abort guard
-	Query    bool            `json:"query"`    // solo query game: timeouts stay quiet
+	Pending  int             `json:"pending"` // spun amount awaiting a consonant
+	Query    bool            `json:"query"`   // solo query game: timeouts stay quiet
 	Done     bool            `json:"done"`
 }
 
@@ -245,6 +248,29 @@ func (g *Game) Solve(attempt string) bool {
 
 // Pass gives up the turn voluntarily.
 func (g *Game) Pass() { g.advance() }
+
+// DropCurrent removes the current player (too many missed turns);
+// Turn lands on the next player. Reports the removed nick.
+func (g *Game) DropCurrent() string {
+	nick := g.Current().Nick
+	g.Players = slices.Delete(g.Players, g.Turn, g.Turn+1)
+	if len(g.Players) > 0 {
+		g.Turn %= len(g.Players)
+	} else {
+		g.Turn = 0
+	}
+	g.State = StateAction
+	g.Pending = 0
+	return nick
+}
+
+// GameMove reports whether a message is game-shaped for this game's
+// language (a verb, or a bare letter): the out-of-turn nudge boundary.
+func (g *Game) GameMove(msg string) bool {
+	t := langs[g.Lang]
+	return t.spinRe.MatchString(msg) || t.buyRe.MatchString(msg) ||
+		t.solveRe.MatchString(msg) || t.passRe.MatchString(msg)
+}
 
 // Board renders the puzzle with unguessed letters masked. Punctuation
 // and digits are always visible, like the show's board.
