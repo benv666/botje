@@ -272,6 +272,20 @@ func (g *Game) GameMove(msg string) bool {
 		t.solveRe.MatchString(msg) || t.passRe.MatchString(msg)
 }
 
+// WrongGuesses lists the called letters that are not in the puzzle,
+// sorted: the used-letter display. The correct calls need no list, the
+// board itself shows those.
+func (g *Game) WrongGuesses() []string {
+	var out []string
+	for l := range g.Guessed {
+		if g.count(l) == 0 {
+			out = append(out, l)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Board renders the puzzle with unguessed letters masked. Punctuation
 // and digits are always visible, like the show's board.
 func (g *Game) Board() string {

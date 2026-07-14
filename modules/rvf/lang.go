@@ -36,6 +36,7 @@ type texts struct {
 	solveWin                 string // nick, amount, solution
 	solveWrong               string
 	hiscoreEntry             string // position
+	wrongLabel               string // prefix of the wrong-guesses list
 	timeout                  string // nick
 	dropped                  string // nick
 	notYourTurn              string // current nick
@@ -93,6 +94,7 @@ var langs = map[string]*texts{
 		solveWin:     "{G}JUIST!{/} {B}{b}%s{/} wint {g}%s{/}! De oplossing: {y}%s{/}",
 		solveWrong:   "{r}Helaas, dat is het niet.{/}",
 		hiscoreEntry: " {c}Plek %d in de toptien!{/}",
+		wrongLabel:   "fout:",
 		timeout:      "{B}{b}%s{/} zit te slapen, de beurt gaat voorbij.",
 		dropped:      "{B}{b}%s{/} doet niet meer mee (blijft maar slapen).",
 		notYourTurn:  "Rustig, {B}{b}%s{/} is aan de beurt.",
@@ -149,6 +151,7 @@ var langs = map[string]*texts{
 		solveWin:     "{G}CORRECT!{/} {B}{b}%s{/} wins {g}%s{/}! The answer: {y}%s{/}",
 		solveWrong:   "{r}Sorry, that is not it.{/}",
 		hiscoreEntry: " {c}Number %d on the leaderboard!{/}",
+		wrongLabel:   "wrong:",
 		timeout:      "{B}{b}%s{/} fell asleep, moving on.",
 		dropped:      "{B}{b}%s{/} is out (keeps sleeping).",
 		notYourTurn:  "Easy, it is {B}{b}%s{/}'s turn.",
