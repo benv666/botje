@@ -389,6 +389,38 @@ func TestTelnetAddDelList(t *testing.T) {
 	}
 }
 
+// two winners sort by score, not by arrival.
+func TestHiscoreOrdering(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	// game 1: Lotjuh wins small (fl. 50 spin, 7x T = 350)
+	f.rolls = []int{0}
+	f.msg("Lotjuh", "#testing", "!start Lotjuh")
+	f.rolls = []int{0} // wheel index 0 = fl. 50
+	f.msg("Lotjuh", "#testing", "draai")
+	f.msg("Lotjuh", "#testing", "t")
+	f.msg("Lotjuh", "#testing", "los op: wie het laatst lacht lacht het best")
+	f.take()
+
+	// game 2: BenV wins big (fl. 1000 spin, 7x T = 7000)
+	f.rolls = []int{0}
+	f.msg("BenV", "#testing", "!start BenV")
+	f.rolls = []int{20}
+	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#testing", "los op: wie het laatst lacht lacht het best")
+	out := f.all()
+	if !strings.Contains(out, "Plek 1") {
+		t.Fatalf("the bigger win should enter at position 1: %q", out)
+	}
+
+	f.msg("Verty", "#testing", "!top10")
+	out = f.all()
+	benv, lotjuh := strings.Index(out, "BenV"), strings.Index(out, "Lotjuh")
+	if benv < 0 || lotjuh < 0 || benv > lotjuh {
+		t.Fatalf("top10 not sorted by score: %q", out)
+	}
+}
+
 func TestSpinFirstHint(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.startGame("#testing", "BenV")
