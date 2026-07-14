@@ -40,6 +40,7 @@ type texts struct {
 	aborted                  string // solution
 	stopped                  string // solution
 	alreadyGame              string
+	notHere                  string // game channels list
 	noPuzzles                string
 	playersOnly              string
 	top10Title               string
@@ -94,6 +95,7 @@ var langs = map[string]*texts{
 		aborted:      "Niemand doet meer mee, spel gestopt. De oplossing was: {y}%s{/}",
 		stopped:      "Spel gestopt. De oplossing was: {y}%s{/}",
 		alreadyGame:  "Er loopt hier al een spel (probeer {y}!stop{/}).",
+		notHere:      "Hier spelen we niet: kom naar {y}%s{/}, of speel solo in een query ({y}!rvf{/}).",
 		noPuzzles:    "Geen puzzels beschikbaar.",
 		playersOnly:  "Alleen spelers kunnen het spel stoppen.",
 		top10Title:   "{B}{b}Rad van Fortuin toptien{/}",
@@ -147,6 +149,7 @@ var langs = map[string]*texts{
 		aborted:      "Nobody is playing, game over. The answer was: {y}%s{/}",
 		stopped:      "Game stopped. The answer was: {y}%s{/}",
 		alreadyGame:  "There is already a game here (try {y}!stop{/}).",
+		notHere:      "Not here: come to {y}%s{/}, or play solo in a query ({y}!rvf{/}).",
 		noPuzzles:    "No puzzles available.",
 		playersOnly:  "Only players can stop the game.",
 		top10Title:   "{B}{b}Wheel of Fortune top ten{/}",

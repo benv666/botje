@@ -232,8 +232,10 @@ a joker that saves your turn once), consonants pay per occurrence,
 vowels cost fl. 250 from your round money, and an absent vowel costs
 the turn too.
 
-`!start nick1,nick2,...` starts a multiplayer game in the channel
-(bare `!start` plays solo, also in a query). The current player says:
+`!start nick1,nick2,...` starts a multiplayer game in a dedicated game
+channel (bare `!start` plays solo; other channels are refused with
+directions). In a query `!start` or `!rvf` plays solo against the
+clock, and timeouts stay quiet there. The current player says:
 
 | move | nl | en |
 |---|---|---|

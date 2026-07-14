@@ -88,6 +88,7 @@ type Game struct {
 	State    GameState       `json:"state"`
 	Pending  int             `json:"pending"`  // spun amount awaiting a consonant
 	Timeouts int             `json:"timeouts"` // consecutive, for the abort guard
+	Query    bool            `json:"query"`    // solo query game: timeouts stay quiet
 	Done     bool            `json:"done"`
 }
 

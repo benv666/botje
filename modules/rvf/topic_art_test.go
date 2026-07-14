@@ -81,7 +81,7 @@ func TestHufterproof(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 
 	// nine players: the studio is full
-	f.msg("BenV", "#testing", "!start a,b,c,d,e,f,g,h,i")
+	f.msg("BenV", "#radvanfortuin", "!start a,b,c,d,e,f,g,h,i")
 	if out := f.all(); !strings.Contains(out, "8") {
 		t.Fatalf("player cap reply: %q", out)
 	}
@@ -90,7 +90,7 @@ func TestHufterproof(t *testing.T) {
 	}
 
 	// a novelty nick
-	f.msg("BenV", "#testing", "!start "+strings.Repeat("x", 40))
+	f.msg("BenV", "#radvanfortuin", "!start "+strings.Repeat("x", 40))
 	if out := f.all(); out == "" || strings.Contains(out, "beurt") {
 		t.Fatalf("silly nick reply: %q", out)
 	}
@@ -98,27 +98,27 @@ func TestHufterproof(t *testing.T) {
 		t.Fatal("silly-nick game was created")
 	}
 
-	f.startGame("#testing", "BenV")
+	f.startGame("#radvanfortuin", "BenV")
 	f.take()
 	// a letter before any spin
 	f.rolls = []int{0}
-	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#radvanfortuin", "t")
 	if out := f.all(); !strings.Contains(out, "draai") {
 		t.Fatalf("letter-before-spin: %q", out)
 	}
 	// a consonant is owed, but the player tries to spin/buy/solve/pass
 	f.rolls = []int{20}
-	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#radvanfortuin", "draai")
 	f.take()
 	for _, move := range []string{"draai", "koop e", "los op: iets", "pas"} {
 		f.rolls = []int{0}
-		f.msg("BenV", "#testing", move)
+		f.msg("BenV", "#radvanfortuin", move)
 		if out := f.all(); !strings.Contains(out, "medeklinker") {
 			t.Fatalf("%q while a letter is owed: %q", move, out)
 		}
 	}
 	// the state never moved: the consonant still works
-	f.msg("BenV", "#testing", "t")
+	f.msg("BenV", "#radvanfortuin", "t")
 	if out := f.all(); !strings.Contains(out, "7x T") {
 		t.Fatalf("letter after garbage: %q", out)
 	}
@@ -127,17 +127,17 @@ func TestHufterproof(t *testing.T) {
 // winning paints ascii art: multi-line, colorized, with the nick in it.
 func TestVictoryArt(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
-	f.startGame("#testing", "SomeVeryLongNickName12345")
+	f.startGame("#radvanfortuin", "SomeVeryLongNickName12345")
 	f.take()
 	f.rolls = []int{20}
-	f.msg("BenV", "#testing", "!stop") // not a player; keeps the game
+	f.msg("BenV", "#radvanfortuin", "!stop") // not a player; keeps the game
 	f.take()
-	f.msg("SomeVeryLongNickName12345", "#testing", "draai")
+	f.msg("SomeVeryLongNickName12345", "#radvanfortuin", "draai")
 	f.take()
-	f.msg("SomeVeryLongNickName12345", "#testing", "t")
+	f.msg("SomeVeryLongNickName12345", "#radvanfortuin", "t")
 	f.take()
 	f.rolls = []int{1} // art variant
-	f.msg("SomeVeryLongNickName12345", "#testing", "los op: wie het laatst lacht lacht het best")
+	f.msg("SomeVeryLongNickName12345", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
 	out := f.all()
 	if lines := strings.Count(out, "\n"); lines < 3 {
 		t.Fatalf("win output has %d newlines, want art + win line: %q", lines, out)
