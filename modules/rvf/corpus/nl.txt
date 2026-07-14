@@ -1,0 +1,193 @@
+# Rad van Fortuin puzzels, nederlands. Formaat: Categorie: puzzel
+# ASCII only (geen diakrieten), de engine maakt er hoofdletters van.
+Spreekwoord: Wie het laatst lacht lacht het best
+Spreekwoord: De appel valt niet ver van de boom
+Spreekwoord: Als de kat van huis is dansen de muizen op tafel
+Spreekwoord: Beter een vogel in de hand dan tien in de lucht
+Spreekwoord: Wie een kuil graaft voor een ander valt er zelf in
+Spreekwoord: Hoge bomen vangen veel wind
+Spreekwoord: Al draagt een aap een gouden ring het is en blijft een lelijk ding
+Spreekwoord: Wie zijn billen brandt moet op de blaren zitten
+Spreekwoord: Oost west thuis best
+Spreekwoord: Zoals het klokje thuis tikt tikt het nergens
+Spreekwoord: De morgenstond heeft goud in de mond
+Spreekwoord: Na regen komt zonneschijn
+Spreekwoord: Wie niet waagt die niet wint
+Spreekwoord: Honger maakt rauwe bonen zoet
+Spreekwoord: Als het kalf verdronken is dempt men de put
+Spreekwoord: Beter laat dan nooit
+Spreekwoord: Een goed begin is het halve werk
+Spreekwoord: Blaffende honden bijten niet
+Spreekwoord: De kruik gaat zo lang te water tot zij barst
+Spreekwoord: Eerlijk duurt het langst
+Spreekwoord: Gedane zaken nemen geen keer
+Spreekwoord: Haastige spoed is zelden goed
+Spreekwoord: Het hemd is nader dan de rok
+Spreekwoord: Ieder huisje heeft zijn kruisje
+Spreekwoord: Je moet een gegeven paard niet in de bek kijken
+Spreekwoord: Kleine potjes hebben grote oren
+Spreekwoord: Nieuwe bezems vegen schoon
+Spreekwoord: Onbekend maakt onbemind
+Spreekwoord: Oefening baart kunst
+Spreekwoord: Spreken is zilver zwijgen is goud
+Spreekwoord: Van uitstel komt afstel
+Spreekwoord: Verboden vruchten smaken het zoetst
+Spreekwoord: Waar rook is is vuur
+Spreekwoord: Wie goed doet goed ontmoet
+Spreekwoord: Zachte heelmeesters maken stinkende wonden
+Spreekwoord: Zo gewonnen zo geronnen
+Spreekwoord: De laatste loodjes wegen het zwaarst
+Spreekwoord: Bezint eer ge begint
+Spreekwoord: Die het eerst komt die het eerst maalt
+Spreekwoord: Een zwaluw maakt nog geen zomer
+Spreekwoord: Geen rozen zonder doornen
+Spreekwoord: Beter ten halve gekeerd dan ten hele gedwaald
+Spreekwoord: Als twee honden vechten om een been loopt de derde ermee heen
+Spreekwoord: De een zijn dood is de ander zijn brood
+Spreekwoord: Wat niet weet wat niet deert
+Spreekwoord: Stille waters hebben diepe gronden
+Spreekwoord: Hoogmoed komt voor de val
+Spreekwoord: Met de hoed in de hand komt men door het ganse land
+Spreekwoord: Wie de bal kaatst kan hem terug verwachten
+Spreekwoord: Er is geen koe zo bont of er zit wel een vlekje aan
+Spreekwoord: Het oog van de meester maakt het paard vet
+Spreekwoord: Men moet het ijzer smeden als het heet is
+Spreekwoord: Ledigheid is des duivels oorkussen
+Spreekwoord: Als de nood het hoogst is is de redding nabij
+Spreekwoord: Zoveel hoofden zoveel zinnen
+Spreekwoord: Goede wijn behoeft geen krans
+Spreekwoord: De pen is machtiger dan het zwaard
+Spreekwoord: Wat gij niet wilt dat u geschiedt doe dat ook een ander niet
+Spreekwoord: In het land der blinden is eenoog koning
+Spreekwoord: Al is de leugen nog zo snel de waarheid achterhaalt haar wel
+Spreekwoord: Achter de wolken schijnt de zon
+Spreekwoord: Een ongeluk komt zelden alleen
+Spreekwoord: Aanval is de beste verdediging
+Spreekwoord: Praatjes vullen geen gaatjes
+Spreekwoord: Meten is weten
+Spreekwoord: Belofte maakt schuld
+Spreekwoord: Geduld is een schone zaak
+Spreekwoord: Arbeid adelt
+Spreekwoord: Rust roest
+Spreekwoord: Wie zaait zal oogsten
+Spreekwoord: Zonder wrijving geen glans
+Spreekwoord: Twee handen op een buik
+Spreekwoord: Na gedane arbeid is het goed rusten
+Spreekwoord: Boontje komt om zijn loontje
+Uitdrukking: Het regent pijpenstelen
+Uitdrukking: De koe bij de horens vatten
+Uitdrukking: Met de deur in huis vallen
+Uitdrukking: Iets onder de knie hebben
+Uitdrukking: De kat uit de boom kijken
+Uitdrukking: Een appeltje voor de dorst
+Uitdrukking: Het achterste van je tong laten zien
+Uitdrukking: Boter op je hoofd hebben
+Uitdrukking: De handdoek in de ring gooien
+Uitdrukking: Met twee maten meten
+Uitdrukking: Het paard achter de wagen spannen
+Uitdrukking: Water naar de zee dragen
+Uitdrukking: Tegen de lamp lopen
+Uitdrukking: De spijker op de kop slaan
+Uitdrukking: Iemand blij maken met een dode mus
+Uitdrukking: Van een mug een olifant maken
+Uitdrukking: Door de mand vallen
+Uitdrukking: Buiten de boot vallen
+Uitdrukking: De kogel is door de kerk
+Uitdrukking: Nu komt de aap uit de mouw
+Uitdrukking: Op hete kolen zitten
+Uitdrukking: Het hoofd boven water houden
+Uitdrukking: De puntjes op de i zetten
+Uitdrukking: Een frisse neus halen
+Uitdrukking: Twee vliegen in een klap slaan
+Uitdrukking: Iets in de doofpot stoppen
+Uitdrukking: De lakens uitdelen
+Uitdrukking: Zijn hart luchten
+Uitdrukking: Met een kluitje in het riet sturen
+Uitdrukking: Er geen gras over laten groeien
+Uitdrukking: De bloemetjes buiten zetten
+Uitdrukking: Een oogje in het zeil houden
+Uitdrukking: Iemand om de tuin leiden
+Uitdrukking: Het onderste uit de kan halen
+Uitdrukking: Roet in het eten gooien
+Uitdrukking: Iets met een korreltje zout nemen
+Uitdrukking: Achter het net vissen
+Uitdrukking: De hond in de pot vinden
+Uitdrukking: Een kat in de zak kopen
+Uitdrukking: Zijn schaapjes op het droge hebben
+Uitdrukking: Als een olifant in een porseleinkast
+Uitdrukking: Het is koek en ei
+Uitdrukking: Appels met peren vergelijken
+Uitdrukking: Voor spek en bonen meedoen
+Uitdrukking: Iemand de oren wassen
+Uitdrukking: Oude koeien uit de sloot halen
+Uitdrukking: Een storm in een glas water
+Uitdrukking: Het ijs breken
+Uitdrukking: Onder een hoedje spelen
+Uitdrukking: Buiten zijn boekje gaan
+Uitdrukking: De eerste klap is een daalder waard
+Uitdrukking: Iemand achter de broek zitten
+Uitdrukking: Met zijn neus in de boter vallen
+Uitdrukking: Ergens een hard hoofd in hebben
+Uitdrukking: De wind van voren krijgen
+Eten en drinken: Erwtensoep met roggebrood
+Eten en drinken: Stamppot boerenkool met rookworst
+Eten en drinken: Pannenkoeken met stroop
+Eten en drinken: Een broodje kroket
+Eten en drinken: Patat met mayonaise
+Eten en drinken: Bitterballen bij de borrel
+Eten en drinken: Appeltaart met slagroom
+Eten en drinken: Oliebollen op oudejaarsavond
+Eten en drinken: Beschuit met muisjes
+Eten en drinken: Hagelslag op brood
+Eten en drinken: Stroopwafels bij de koffie
+Eten en drinken: Poffertjes met poedersuiker
+Eten en drinken: Hollandse nieuwe met uitjes
+Eten en drinken: Boerenkaas van de markt
+Eten en drinken: Een advocaatje met slagroom
+Plaats: Het rijksmuseum in amsterdam
+Plaats: De keukenhof in lisse
+Plaats: De afsluitdijk
+Plaats: Het vondelpark
+Plaats: De waddeneilanden
+Plaats: De deltawerken in zeeland
+Plaats: De grachtengordel van amsterdam
+Plaats: De pier van scheveningen
+Plaats: De domtoren van utrecht
+Plaats: De erasmusbrug in rotterdam
+Plaats: De martinitoren in groningen
+Plaats: De molens van kinderdijk
+Plaats: De hoge veluwe
+Plaats: Het binnenhof in den haag
+Persoon: Johan cruijff
+Persoon: Rembrandt van rijn
+Persoon: Vincent van gogh
+Persoon: Anne frank
+Persoon: Willem van oranje
+Persoon: Michiel de ruyter
+Persoon: Antoni van leeuwenhoek
+Persoon: Erasmus van rotterdam
+Persoon: Mata hari
+Persoon: Andre hazes
+Beroep: Vuurtorenwachter
+Beroep: Schoorsteenveger
+Beroep: Klompenmaker
+Beroep: De lantaarnopsteker
+Beroep: Kaasboer op de markt
+Beroep: Molenaarsknecht
+Gebeurtenis: De intocht van sinterklaas
+Gebeurtenis: De elfstedentocht
+Gebeurtenis: Prinsjesdag in den haag
+Gebeurtenis: De vierdaagse van nijmegen
+Gebeurtenis: Koningsdag in amsterdam
+Gebeurtenis: De huldiging op de dam
+Gebeurtenis: Bevrijdingsdag
+Titel: De nachtwacht van rembrandt
+Titel: Het meisje met de parel
+Titel: Het achterhuis van anne frank
+Titel: Turks fruit van jan wolkers
+Titel: De ontdekking van de hemel
+Titel: Ciske de rat
+Titel: Pluk van de petteflet
+Titel: Jip en janneke
+Titel: De schippers van de kameleon
+Titel: Nijntje aan zee

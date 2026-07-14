@@ -1,0 +1,400 @@
+package rvf
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"go-botje/internal/admin"
+	"go-botje/internal/bus"
+	"go-botje/internal/conf"
+	"go-botje/internal/irc/cmd"
+	"go-botje/internal/irc/pager"
+	"go-botje/internal/module"
+	"go-botje/internal/sched"
+	"go-botje/internal/storage"
+)
+
+type fixture struct {
+	m     *Module
+	b     *bus.Bus
+	cmds  *cmd.Registry
+	cf    *conf.Conf
+	sch   *sched.Sched
+	clk   time.Time
+	saver *storage.Saver
+	sent  []string
+	rolls []int // scripted Rand results, consumed in order
+}
+
+func newFixture(t *testing.T, store storage.Store) *fixture {
+	t.Helper()
+	f := &fixture{clk: time.Date(2026, 7, 14, 20, 0, 0, 0, time.Local)}
+	f.b = bus.New()
+	f.b.RegisterEvent("IRC_PRIVMSG")
+	f.b.RegisterEvent("COMMAND")
+	f.cmds = cmd.New()
+	f.cf = conf.New()
+	f.sch = sched.New(func() time.Time { return f.clk })
+	f.m = New()
+	f.m.Now = func() time.Time { return f.clk }
+	f.m.Rand = func(n int) int {
+		if len(f.rolls) == 0 {
+			t.Fatalf("unscripted Rand(%d) call", n)
+		}
+		r := f.rolls[0]
+		f.rolls = f.rolls[1:]
+		return r % n
+	}
+	pg := pager.New(f.sch, func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) })
+	pg.MaxLines = func() int { return 12 }
+	f.saver = storage.NewSaver(store,
+		func(fn func()) { fn() },
+		func(err error) { t.Errorf("saver: %v", err) })
+	err := f.m.Load(&module.Context{
+		Bus: f.b, Cmd: f.cmds, Conf: f.cf, Store: store, Sched: f.sch,
+		Saver: f.saver, Pager: pg,
+		Privmsg: func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.saver.FlushSync() })
+	return f
+}
+
+func (f *fixture) msg(nick, channel, text string) {
+	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: channel,
+		Msg: text, Extra: map[string]any{}}
+	ev.Sender.Nick = nick
+	f.b.Submit(ev)
+	f.cmds.Handle(ev)
+}
+
+func (f *fixture) query(nick, text string) {
+	ev := &bus.Event{Name: "IRC_PRIVMSG", Server: "junerules", Channel: nick,
+		Msg: text, Query: true, Extra: map[string]any{}}
+	ev.Sender.Nick = nick
+	f.b.Submit(ev)
+	f.cmds.Handle(ev)
+}
+
+func (f *fixture) take() []string {
+	s := f.sent
+	f.sent = nil
+	return s
+}
+
+func (f *fixture) all() string { return strings.Join(f.take(), "\n") }
+
+// startGame scripts the puzzle roll to 0: the first corpus entry, which
+// for nl is "Wie het laatst lacht lacht het best" (Spreekwoord).
+func (f *fixture) startGame(channel, players string) {
+	f.rolls = append(f.rolls, 0)
+	f.msg("BenV", channel, strings.TrimSpace("!start "+players))
+}
+
+func TestStartAnnouncesBoardAndTurn(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV,Lotjuh")
+	out := f.all()
+	if !strings.Contains(out, "[Spreekwoord]") {
+		t.Fatalf("no category: %q", out)
+	}
+	if strings.ContainsAny(out[strings.Index(out, "]"):], "WHLT") {
+		t.Fatalf("board leaks letters: %q", out)
+	}
+	if !strings.Contains(out, "░") || !strings.Contains(out, "{B}{b}BenV{/} is aan de beurt") {
+		t.Fatalf("board/turn missing: %q", out)
+	}
+}
+
+func TestFullChannelGame(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV,Lotjuh")
+	f.take()
+
+	// BenV spins fl. 1000 (wheel index 20) and calls the T: 7x = 7000
+	f.rolls = []int{20}
+	f.msg("BenV", "#testing", "draai")
+	if out := f.all(); !strings.Contains(out, "fl. 1000") || !strings.Contains(out, "medeklinker") {
+		t.Fatalf("spin reply: %q", out)
+	}
+	f.msg("BenV", "#testing", "t")
+	out := f.all()
+	if !strings.Contains(out, "7x T") || !strings.Contains(out, "fl. 7000") {
+		t.Fatalf("hit reply: %q", out)
+	}
+	// still BenV's turn after a hit
+	if !strings.Contains(out, "{B}{b}BenV{/} is aan de beurt") {
+		t.Fatalf("turn moved after a hit: %q", out)
+	}
+
+	// buys the E (4x), then solves
+	f.msg("BenV", "#testing", "koop e")
+	if out := f.all(); !strings.Contains(out, "4x E") {
+		t.Fatalf("vowel reply: %q", out)
+	}
+	f.msg("BenV", "#testing", "los op: wie het laatst lacht, lacht het best")
+	out = f.all()
+	if !strings.Contains(out, "JUIST") || !strings.Contains(out, "fl. 6750") {
+		t.Fatalf("win reply: %q", out)
+	}
+	if !strings.Contains(out, "toptien") && !strings.Contains(out, "Plek 1") {
+		t.Fatalf("no hiscore mention: %q", out)
+	}
+
+	// the game is gone: new input is ignored
+	f.msg("BenV", "#testing", "draai")
+	if out := f.all(); out != "" {
+		t.Fatalf("dead game still replies: %q", out)
+	}
+
+	// and the leaderboard has the entry
+	f.msg("Lotjuh", "#testing", "!top10")
+	if out := f.all(); !strings.Contains(out, "BenV") || !strings.Contains(out, "fl. 6750") {
+		t.Fatalf("top10: %q", out)
+	}
+}
+
+func TestMissPassesTurnToNextPlayer(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV,Lotjuh")
+	f.take()
+	f.rolls = []int{20}
+	f.msg("BenV", "#testing", "draai")
+	f.take()
+	f.msg("BenV", "#testing", "z")
+	out := f.all()
+	if !strings.Contains(out, "Geen Z") || !strings.Contains(out, "{B}{b}Lotjuh{/} is aan de beurt") {
+		t.Fatalf("miss reply: %q", out)
+	}
+	// now BenV's input is ignored, Lotjuh's counts
+	f.msg("BenV", "#testing", "draai")
+	if out := f.all(); out != "" {
+		t.Fatalf("not-your-turn input replied: %q", out)
+	}
+	f.rolls = []int{20}
+	f.msg("Lotjuh", "#testing", "draai")
+	if out := f.all(); !strings.Contains(out, "Lotjuh") {
+		t.Fatalf("current player ignored: %q", out)
+	}
+}
+
+func TestEnglishChannel(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.rolls = []int{0}
+	f.msg("BenV", "#wheeloffortune", "!start BenV")
+	out := f.all()
+	if !strings.Contains(out, "[Phrase]") || !strings.Contains(out, "{B}{b}BenV{/} is up") {
+		t.Fatalf("english start: %q", out)
+	}
+	f.rolls = []int{20}
+	f.msg("BenV", "#wheeloffortune", "spin")
+	if out := f.all(); !strings.Contains(out, "$1000") || !strings.Contains(out, "consonant") {
+		t.Fatalf("english spin: %q", out)
+	}
+	// The early bird catches the worm: 3x R
+	f.msg("BenV", "#wheeloffortune", "r")
+	if out := f.all(); !strings.Contains(out, "3x R") || !strings.Contains(out, "$3000") {
+		t.Fatalf("english hit: %q", out)
+	}
+	f.msg("BenV", "#wheeloffortune", "solve the early bird catches the worm")
+	if out := f.all(); !strings.Contains(out, "CORRECT") {
+		t.Fatalf("english solve: %q", out)
+	}
+}
+
+func TestQuerySoloGameAndStopPropagation(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	// a hook registered AFTER rvf (like markov) must not see live-game
+	// input; register a canary
+	var leaked []string
+	f.b.RegisterHook("canary", "IRC_PRIVMSG", func(ev *bus.Event) (bus.Handled, any) {
+		leaked = append(leaked, ev.Msg)
+		return bus.None, nil
+	})
+
+	f.rolls = []int{0}
+	f.query("BenV", "!start")
+	if out := f.all(); !strings.Contains(out, "[Spreekwoord]") {
+		t.Fatalf("query start: %q", out)
+	}
+	f.rolls = []int{20}
+	f.query("BenV", "draai")
+	if out := f.all(); !strings.Contains(out, "fl. 1000") {
+		t.Fatalf("query spin: %q", out)
+	}
+	// mid-game noise gets usage, and markov-alikes never see it
+	f.query("BenV", "talk to me")
+	if out := f.all(); !strings.Contains(out, "medeklinker") && !strings.Contains(out, "draai") {
+		t.Fatalf("query noise reply: %q", out)
+	}
+	for _, l := range leaked {
+		if l != "!start" {
+			t.Fatalf("game input leaked past rvf to later hooks: %q", l)
+		}
+	}
+}
+
+func TestTurnTimeoutAndAbort(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV,Lotjuh")
+	f.take()
+
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	out := f.all()
+	if !strings.Contains(out, "{B}{b}BenV{/} zit te slapen") || !strings.Contains(out, "Lotjuh") {
+		t.Fatalf("timeout 1: %q", out)
+	}
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	if out := f.all(); !strings.Contains(out, "Lotjuh") {
+		t.Fatalf("timeout 2: %q", out)
+	}
+	// third consecutive timeout aborts and reveals the solution
+	f.clk = f.clk.Add(91 * time.Second)
+	f.sch.RunDue()
+	out = f.all()
+	if !strings.Contains(out, "spel gestopt") || !strings.Contains(out, "WIE HET LAATST LACHT") {
+		t.Fatalf("abort: %q", out)
+	}
+	// no further timers fire
+	f.clk = f.clk.Add(300 * time.Second)
+	f.sch.RunDue()
+	if out := f.all(); out != "" {
+		t.Fatalf("dead game timer fired: %q", out)
+	}
+}
+
+func TestMoveResetsTimeoutCounter(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV,Lotjuh")
+	f.take()
+	// two timeouts, then a real move, then two more: no abort (never 3
+	// consecutive)
+	for i := 0; i < 2; i++ {
+		f.clk = f.clk.Add(91 * time.Second)
+		f.sch.RunDue()
+	}
+	f.take()
+	f.msg("BenV", "#testing", "pas")
+	f.take()
+	for i := 0; i < 2; i++ {
+		f.clk = f.clk.Add(91 * time.Second)
+		f.sch.RunDue()
+	}
+	out := f.all()
+	if strings.Contains(out, "spel gestopt") {
+		t.Fatalf("aborted despite the counter reset: %q", out)
+	}
+	if _, ok := f.m.games[gameKey("junerules", "#testing")]; !ok {
+		t.Fatal("game should still be alive")
+	}
+}
+
+func TestStopCommand(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV,Lotjuh")
+	f.take()
+	// a non-player cannot stop it
+	f.msg("Verty", "#testing", "!stop")
+	if out := f.all(); !strings.Contains(out, "Alleen spelers") {
+		t.Fatalf("non-player stop: %q", out)
+	}
+	f.msg("Lotjuh", "#testing", "!stop")
+	out := f.all()
+	if !strings.Contains(out, "Spel gestopt") || !strings.Contains(out, "WIE HET LAATST LACHT") {
+		t.Fatalf("stop: %q", out)
+	}
+}
+
+func TestStartRefusedWhileGameRuns(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV")
+	f.take()
+	f.msg("Lotjuh", "#testing", "!start Lotjuh")
+	if out := f.all(); !strings.Contains(out, "al een spel") {
+		t.Fatalf("second start: %q", out)
+	}
+}
+
+func TestGameSurvivesRestart(t *testing.T) {
+	store := storage.NewMemory()
+	f := newFixture(t, store)
+	f.startGame("#testing", "BenV,Lotjuh")
+	f.rolls = []int{20}
+	f.msg("BenV", "#testing", "draai")
+	f.msg("BenV", "#testing", "t")
+	f.take()
+
+	// "restart": flush the dirty state, then a fresh module on the store
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
+	}
+	f2 := newFixture(t, store)
+	g := f2.m.games[gameKey("junerules", "#testing")]
+	if g == nil {
+		t.Fatal("game not restored")
+	}
+	if g.Current().Nick != "BenV" || g.Current().Money != 7000 {
+		t.Fatalf("restored state: %+v", g.Current())
+	}
+	// play on through the restored module
+	f2.msg("BenV", "#testing", "los op: wie het laatst lacht lacht het best")
+	if out := f2.all(); !strings.Contains(out, "JUIST") {
+		t.Fatalf("restored game not playable: %q", out)
+	}
+	// and its turn timer was re-armed
+	f2.startGame("#testing", "BenV")
+	f2.take()
+	f2.clk = f2.clk.Add(91 * time.Second)
+	f2.sch.RunDue()
+	if out := f2.all(); !strings.Contains(out, "zit te slapen") {
+		t.Fatalf("restored timer: %q", out)
+	}
+}
+
+func TestTelnetAddDelList(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	var spec admin.Spec
+	for _, payload := range f.b.Submit(&bus.Event{Name: "COMMAND", Extra: map[string]any{}}) {
+		if s, ok := payload.(admin.Spec); ok && s.Name == "rvf" {
+			spec = s
+		}
+	}
+	if spec.Run == nil || !spec.Su {
+		t.Fatalf("no su rvf admin spec: %+v", spec)
+	}
+	if out := spec.Run("", "rvf add nl Gezegde: Zo geel als boter"); !strings.Contains(out, "Added") {
+		t.Fatalf("add: %q", out)
+	}
+	if out := spec.Run("", "rvf add nl Gezegde: Ongeldig teken é"); !strings.Contains(out, "Error") {
+		t.Fatalf("diacritics accepted: %q", out)
+	}
+	if out := spec.Run("", "rvf list"); !strings.Contains(out, "1 extra") ||
+		!strings.Contains(out, "Zo geel als boter") {
+		t.Fatalf("list: %q", out)
+	}
+	// the added puzzle is at the end of the pool: script the roll there
+	pool := f.m.pool("nl")
+	f.rolls = []int{len(pool) - 1}
+	f.msg("BenV", "#testing", "!start")
+	if out := f.all(); !strings.Contains(out, "[Gezegde]") {
+		t.Fatalf("extra puzzle not in pool: %q", out)
+	}
+	if out := spec.Run("", "rvf del nl zo geel als boter"); !strings.Contains(out, "Deleted") {
+		t.Fatalf("del: %q", out)
+	}
+}
+
+func TestSpinFirstHint(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#testing", "BenV")
+	f.take()
+	f.msg("BenV", "#testing", "t")
+	if out := f.all(); !strings.Contains(out, "Eerst") {
+		t.Fatalf("letter before spin: %q", out)
+	}
+}
