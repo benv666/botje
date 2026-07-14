@@ -176,7 +176,7 @@ Import > paste the JSON, pick your prometheus datasource).
 | tinyurl | `!tinyurl <url>`, auto-shortens channel URLs over 40 chars |
 | wiki | `!wiki <query>`, top 3 Wikipedia hits (15s per-channel spam brake) |
 | urband | `!ud <term>` via RapidAPI Urban Dictionary; needs `conf urband_rapidapi_key=...` |
-| weather | `!weer [plaats]`, `!weer full [plaats]`, `!regen [plaats]`, `!weeralarm` (code geel/oranje/rood). See [Weather](#weather-weer-regen-weeralarm) below |
+| weather | `!weer [plaats]`, `!weer full [plaats]`, `!regen [plaats]`, `!weeralarm` (code geel/oranje/rood), `!weerdiff <plaats1> <plaats2>`. See [Weather](#weather-weer-regen-weeralarm) below |
 | wolframalpha | `!wa <query>`; needs `conf wolframalpha_appid=...` |
 | rvf | Rad van Fortuin: `!start [nick1,nick2,...]`, `!stop`, `!top10`. See [Rad van Fortuin](#rad-van-fortuin-start) below |
 | remind | `!remind <min> <hour> <day> <mon> <dow> <msg>` (cron, day/month names ok), `!remind show\|clear <ids>`; `!remember <name> <val>` / `!recall <name> [n]` / `!forget <name>` notepad (last 3 per name) |
@@ -196,6 +196,7 @@ All free APIs, no keys, nothing to sign up for.
 | `!weer full [plaats]` | what is still coming today (peak temperature, rain, sunset) plus tomorrow at a glance |
 | `!regen [plaats]` | next two hours of precipitation as a sparkline, with rain-from and peak mm/h |
 | `!weeralarm` | every active code geel/oranje/rood |
+| `!weerdiff <plaats1> <plaats2>` | two places side by side with a warmer-place verdict; comma for multi-word names (`!weerdiff wijk aan zee, den haag`), one place compares against home |
 | `!weer help` | usage (also `?`, or any unknown place) |
 
 Sources: inside the Netherlands the nearest buienradar station that has
