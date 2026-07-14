@@ -63,3 +63,31 @@ func TestSortedKidsAlphabetical(t *testing.T) {
 		t.Fatalf("sortedKids = %v, want %v", got, want)
 	}
 }
+
+// toCompact must deliver kids sorted by id: child() binary-searches,
+// and JSON map iteration order is random (a missing sort here works by
+// luck on single-child fixtures and corrupts lookups on real data).
+func TestToCompactSortsKids(t *testing.T) {
+	kidWords := []string{"zzz-late", "mmm-mid", "aaa-early", "qqq-q", "bbb-b"}
+	children := map[string]*Node{}
+	for _, w := range kidWords {
+		wordTab.id(w) // interning order != alphabetical order
+		children[w] = &Node{Count: 1}
+	}
+	// map iteration order is random: repeat so an unsorted conversion
+	// cannot pass by luck
+	for range 20 {
+		nd := toCompact(&Node{Count: 5, Children: children})
+		for i := 1; i < len(nd.kids); i++ {
+			if nd.kids[i-1].word >= nd.kids[i].word {
+				t.Fatalf("kids not sorted by id: %v", nd.kids)
+			}
+		}
+		for _, w := range kidWords {
+			id, _ := wordTab.lookup(w)
+			if nd.child(id) == nil {
+				t.Fatalf("child lookup failed for %q", w)
+			}
+		}
+	}
+}
