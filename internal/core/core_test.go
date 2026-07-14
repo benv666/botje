@@ -45,9 +45,11 @@ type harness struct {
 	done   chan error
 }
 
-// newHarnessRaw starts the core without confirming registration; use
-// newHarness unless the test is about pre-welcome behavior.
-func newHarnessRaw(t *testing.T, mods ...module.Module) *harness {
+// newHarnessCfg is the one place that boots a core for a test: an
+// in-memory pipe as the IRC wire and a default Config the caller can
+// mutate. It does not confirm registration; use newHarness unless the
+// test is about pre-welcome behavior.
+func newHarnessCfg(t *testing.T, mutate func(*Config)) *harness {
 	t.Helper()
 	client, server := net.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,16 +57,17 @@ func newHarnessRaw(t *testing.T, mods ...module.Module) *harness {
 		t: t, server: server, r: bufio.NewReader(server),
 		cancel: cancel, done: make(chan error, 1),
 	}
-	go func() {
-		h.done <- Run(ctx, Config{
-			Network:  "test",
-			Nick:     "Meretrix",
-			Channels: []string{"#testing"},
-			Store:    storage.NewMemory(),
-			Modules:  mods,
-			Dial:     func() (net.Conn, error) { return client, nil },
-		})
-	}()
+	cfg := Config{
+		Network:  "test",
+		Nick:     "Meretrix",
+		Channels: []string{"#testing"},
+		Store:    storage.NewMemory(),
+		Dial:     func() (net.Conn, error) { return client, nil },
+	}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	go func() { h.done <- Run(ctx, cfg) }()
 	t.Cleanup(func() {
 		cancel()
 		server.Close()
@@ -75,6 +78,10 @@ func newHarnessRaw(t *testing.T, mods ...module.Module) *harness {
 		}
 	})
 	return h
+}
+
+func newHarnessRaw(t *testing.T, mods ...module.Module) *harness {
+	return newHarnessCfg(t, func(cfg *Config) { cfg.Modules = mods })
 }
 
 func newHarness(t *testing.T, mods ...module.Module) *harness {
@@ -156,59 +163,77 @@ func TestCoreSuggestion(t *testing.T) {
 	}
 }
 
-func TestCoreAdminPort(t *testing.T) {
-	client, server := net.Pipe()
-	adminLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+// adminHarness is a harness with a telnet client logged in on the
+// admin port as benv/geheim (a superuser when su is set).
+type adminHarness struct {
+	*harness
+	tc net.Conn
+	tr *bufio.Reader
+}
+
+func newAdminHarness(t *testing.T, store storage.Store, su bool, mods ...module.Module) *adminHarness {
+	t.Helper()
 	a, err := auth.New(storage.NewMemory())
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.AddUser("benv", "geheim")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Config{
-			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
-			Store: storage.NewMemory(), Auth: a, AdminListener: adminLn,
-			Dial: func() (net.Conn, error) { return client, nil },
-		})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		server.Close()
-		<-done
+	if su {
+		hash, _ := bcrypt.GenerateFromPassword([]byte("geheim"), bcrypt.MinCost)
+		a.SetSuperuser("benv", string(hash))
+	}
+	adminLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessCfg(t, func(cfg *Config) {
+		cfg.Store = store
+		cfg.Modules = mods
+		cfg.Auth = a
+		cfg.AdminListener = adminLn
 	})
 
 	tc, err := net.Dial("tcp", adminLn.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tc.Close()
+	t.Cleanup(func() { tc.Close() })
 	tc.SetDeadline(time.Now().Add(10 * time.Second))
-	r := bufio.NewReader(tc)
-	expectTelnet := func(marker string) string {
-		t.Helper()
-		var buf strings.Builder
-		b := make([]byte, 1)
-		for !strings.Contains(buf.String(), marker) {
-			if _, err := r.Read(b); err != nil {
-				t.Fatalf("waiting for %q, got %q: %v", marker, buf.String(), err)
-			}
-			buf.WriteByte(b[0])
-		}
-		return buf.String()
+	ah := &adminHarness{harness: h, tc: tc, tr: bufio.NewReader(tc)}
+	ah.expectTelnet("login: ")
+	ah.telnet("benv")
+	ah.expectTelnet("password: ")
+	ah.telnet("geheim")
+	ah.expectTelnet("Welcome to botje!")
+	return ah
+}
+
+func (h *adminHarness) telnet(line string) {
+	h.t.Helper()
+	if _, err := h.tc.Write([]byte(line + "\r\n")); err != nil {
+		h.t.Fatal(err)
 	}
-	expectTelnet("login: ")
-	tc.Write([]byte("benv\r\n"))
-	expectTelnet("password: ")
-	tc.Write([]byte("geheim\r\n"))
-	expectTelnet("Welcome to botje!")
-	tc.Write([]byte("status\r\n"))
-	out := expectTelnet("Modules with hooks:")
+}
+
+// expectTelnet reads the telnet stream byte by byte (the prompts have
+// no trailing newline) until marker appears.
+func (h *adminHarness) expectTelnet(marker string) string {
+	h.t.Helper()
+	var buf strings.Builder
+	b := make([]byte, 1)
+	for !strings.Contains(buf.String(), marker) {
+		if _, err := h.tr.Read(b); err != nil {
+			h.t.Fatalf("waiting for %q, got %q: %v", marker, buf.String(), err)
+		}
+		buf.WriteByte(b[0])
+	}
+	return buf.String()
+}
+
+func TestCoreAdminPort(t *testing.T) {
+	h := newAdminHarness(t, storage.NewMemory(), false)
+	h.telnet("status")
+	out := h.expectTelnet("Modules with hooks:")
 	if !strings.Contains(out, "test") {
 		t.Fatalf("status = %q", out)
 	}
@@ -229,31 +254,10 @@ func newHarnessStore(t *testing.T, store storage.Store, mods ...module.Module) *
 
 func newHarnessStoreInterval(t *testing.T, store storage.Store, saveInterval time.Duration, mods ...module.Module) *harness {
 	t.Helper()
-	client, server := net.Pipe()
-	ctx, cancel := context.WithCancel(context.Background())
-	h := &harness{
-		t: t, server: server, r: bufio.NewReader(server),
-		cancel: cancel, done: make(chan error, 1),
-	}
-	go func() {
-		h.done <- Run(ctx, Config{
-			Network:      "test",
-			Nick:         "Meretrix",
-			Channels:     []string{"#testing"},
-			Store:        store,
-			Modules:      mods,
-			Dial:         func() (net.Conn, error) { return client, nil },
-			SaveInterval: saveInterval,
-		})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		server.Close()
-		select {
-		case <-h.done:
-		case <-time.After(5 * time.Second):
-			t.Error("core did not stop")
-		}
+	h := newHarnessCfg(t, func(cfg *Config) {
+		cfg.Store = store
+		cfg.Modules = mods
+		cfg.SaveInterval = saveInterval
 	})
 	h.welcome()
 	return h
@@ -358,66 +362,15 @@ func TestCoreConfPersistAcrossRuns(t *testing.T) {
 	if err := store.Put("core", "conf", map[string]string{"anti_flood_max_lines": "7"}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := auth.New(storage.NewMemory())
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.AddUser("benv", "geheim")
-	hash, _ := bcrypt.GenerateFromPassword([]byte("geheim"), bcrypt.MinCost)
-	a.SetSuperuser("benv", string(hash))
-
-	client, server := net.Pipe()
-	adminLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Config{
-			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
-			Store: store, Auth: a, AdminListener: adminLn,
-			Dial: func() (net.Conn, error) { return client, nil },
-		})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		server.Close()
-		<-done
-	})
-
-	tc, err := net.Dial("tcp", adminLn.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tc.Close()
-	tc.SetDeadline(time.Now().Add(10 * time.Second))
-	r := bufio.NewReader(tc)
-	expectTelnet := func(marker string) string {
-		t.Helper()
-		var buf strings.Builder
-		b := make([]byte, 1)
-		for !strings.Contains(buf.String(), marker) {
-			if _, err := r.Read(b); err != nil {
-				t.Fatalf("waiting for %q, got %q: %v", marker, buf.String(), err)
-			}
-			buf.WriteByte(b[0])
-		}
-		return buf.String()
-	}
-	expectTelnet("login: ")
-	tc.Write([]byte("benv\r\n"))
-	expectTelnet("password: ")
-	tc.Write([]byte("geheim\r\n"))
-	expectTelnet("Welcome to botje!")
+	h := newAdminHarness(t, store, true)
 
 	// the stored value survived the restart-equivalent (fresh core, old store)
-	tc.Write([]byte("conf anti_flood_max_lines\r\n"))
-	expectTelnet("= 7")
+	h.telnet("conf anti_flood_max_lines")
+	h.expectTelnet("= 7")
 
 	// a new Set lands in storage
-	tc.Write([]byte("conf anti_flood_max_lines=2\r\n"))
-	expectTelnet("anti_flood_max_lines = 2")
+	h.telnet("conf anti_flood_max_lines=2")
+	h.expectTelnet("anti_flood_max_lines = 2")
 	var stored map[string]string
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -436,84 +389,17 @@ func TestCoreConfPersistAcrossRuns(t *testing.T) {
 // telnet join/part manage the channel set at runtime.
 func TestCoreAdminJoinPart(t *testing.T) {
 	store := storage.NewMemory()
-	a, err := auth.New(storage.NewMemory())
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.AddUser("benv", "geheim")
-	hash, _ := bcrypt.GenerateFromPassword([]byte("geheim"), bcrypt.MinCost)
-	a.SetSuperuser("benv", string(hash))
+	h := newAdminHarness(t, store, true)
+	h.welcome()
+	h.expect("JOIN #testing")
 
-	client, server := net.Pipe()
-	adminLn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Config{
-			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
-			Store: store, Auth: a, AdminListener: adminLn,
-			Dial: func() (net.Conn, error) { return client, nil },
-		})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		server.Close()
-		<-done
-	})
+	h.telnet("join #extra")
+	h.expectTelnet("#extra")
+	h.expect("JOIN #extra")
 
-	wire := bufio.NewReader(server)
-	server.Write([]byte(":srv 001 Meretrix :Welcome to test\r\n"))
-	expectWire := func(want string) string {
-		t.Helper()
-		server.SetReadDeadline(time.Now().Add(10 * time.Second))
-		for {
-			line, err := wire.ReadString('\n')
-			if err != nil {
-				t.Fatalf("waiting for %q: %v", want, err)
-			}
-			line = strings.TrimRight(line, "\r\n")
-			if strings.Contains(line, want) {
-				return line
-			}
-		}
-	}
-	expectWire("JOIN #testing")
-
-	tc, err := net.Dial("tcp", adminLn.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tc.Close()
-	tc.SetDeadline(time.Now().Add(10 * time.Second))
-	r := bufio.NewReader(tc)
-	expectTelnet := func(marker string) string {
-		t.Helper()
-		var buf strings.Builder
-		b := make([]byte, 1)
-		for !strings.Contains(buf.String(), marker) {
-			if _, err := r.Read(b); err != nil {
-				t.Fatalf("waiting for %q, got %q: %v", marker, buf.String(), err)
-			}
-			buf.WriteByte(b[0])
-		}
-		return buf.String()
-	}
-	expectTelnet("login: ")
-	tc.Write([]byte("benv\r\n"))
-	expectTelnet("password: ")
-	tc.Write([]byte("geheim\r\n"))
-	expectTelnet("Welcome to botje!")
-
-	tc.Write([]byte("join #extra\r\n"))
-	expectTelnet("#extra")
-	expectWire("JOIN #extra")
-
-	tc.Write([]byte("part #extra\r\n"))
-	expectTelnet("#extra")
-	expectWire("PART #extra")
+	h.telnet("part #extra")
+	h.expectTelnet("#extra")
+	h.expect("PART #extra")
 
 	var chans []string
 	store.Get("core", "channels", &chans)
@@ -522,8 +408,8 @@ func TestCoreAdminJoinPart(t *testing.T) {
 	}
 
 	// part of an unknown channel errors
-	tc.Write([]byte("part #nope\r\n"))
-	expectTelnet("Error")
+	h.telnet("part #nope")
+	h.expectTelnet("Error")
 }
 
 // sentCapture records IRC_SENT events (what the logger module will hook).
@@ -655,50 +541,24 @@ func TestCorePrivmsgDropUnjoined(t *testing.T) {
 // the metrics endpoint reflects live bus activity and connection state.
 func TestCoreMetricsEndpoint(t *testing.T) {
 	reg := metrics.New()
-	client, server := net.Pipe()
 	metricsLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Config{
-			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
-			Store: storage.NewMemory(), Modules: []module.Module{&echoModule{}, &broadcaster{}},
-			Metrics: reg, MetricsAddr: metricsLn.Addr().String(),
-			Dial: func() (net.Conn, error) { return client, nil },
-		})
-	}()
-	t.Cleanup(func() { cancel(); server.Close(); <-done })
-	// the listener we passed is only for Addr(); close it so core's own
+	// the listener is only for a free Addr(); close it so core's own
 	// listen on the same addr can bind
 	metricsLn.Close()
-
-	r := bufio.NewReader(server)
-	server.Write([]byte(":srv 001 Meretrix :Welcome to test\r\n"))
+	h := newHarnessCfg(t, func(cfg *Config) {
+		cfg.Modules = []module.Module{&echoModule{}, &broadcaster{}}
+		cfg.Metrics = reg
+		cfg.MetricsAddr = metricsLn.Addr().String()
+	})
+	h.welcome()
 	// drive a command so a hook records a call
-	server.SetReadDeadline(time.Now().Add(10 * time.Second))
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(line, "JOIN #testing") {
-			break
-		}
-	}
-	server.Write([]byte(":Meretrix!b@h JOIN #testing\r\n"))
-	server.Write([]byte(":BenV!benv@host PRIVMSG #testing :!ping x\r\n"))
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(line, "pong x") {
-			break
-		}
-	}
+	h.expect("JOIN #testing")
+	h.send(":Meretrix!b@h JOIN #testing")
+	h.send(":BenV!benv@host PRIVMSG #testing :!ping x")
+	h.expect("pong x")
 
 	// scrape
 	var body string
