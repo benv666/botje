@@ -65,6 +65,29 @@ type idleState struct {
 	set     bool
 }
 
+// dict is one dictionary: the chains plus a sorted top-word cache for
+// uniform random picks. The default dict learns all channel chatter;
+// every talker also gets a nick_<nick> dict (!talklike, 2026-07-14).
+type dict struct {
+	name   string // "default", "nick_benv", ...
+	chains map[string]*Node
+	keys   []string
+}
+
+func newDict(name string) *dict {
+	return &dict{name: name, chains: make(map[string]*Node)}
+}
+
+// rebuildKeys refreshes the sorted top-word cache (the perl cached
+// hash order; sorted is deterministic).
+func (d *dict) rebuildKeys() {
+	d.keys = make([]string, 0, len(d.chains))
+	for w := range d.chains {
+		d.keys = append(d.keys, w)
+	}
+	slices.Sort(d.keys)
+}
+
 // Module implements module.Module.
 type Module struct {
 	// Now and Rand are injectable for tests.
@@ -74,8 +97,8 @@ type Module struct {
 	ctx        *module.Context
 	order      int
 	dictionary string
-	chains     map[string]*Node
-	keys       []string              // top-level key cache for random picks
+	main       *dict
+	nicks      map[string]*dict      // dict name -> dict
 	idle       map[string]*idleState // per channel
 }
 
@@ -110,16 +133,12 @@ func (m *Module) Load(ctx *module.Context) error {
 	m.dictionary = strings.ToLower(strings.TrimSpace(ctx.Conf.String("markov_dictionary")))
 	m.idle = make(map[string]*idleState)
 
-	if err := m.loadDictionary(); err != nil {
+	if err := m.loadDictionaries(); err != nil {
 		return err
 	}
-	m.keys = make([]string, 0, len(m.chains))
-	for w := range m.chains {
-		m.keys = append(m.keys, w)
-	}
-	slices.Sort(m.keys) // the perl cached hash order; sorted is deterministic
 
 	ctx.Cmd.Register(m.Name(), "talk", m.cbTalk)
+	ctx.Cmd.Register(m.Name(), "talklike", m.cbTalkLike)
 	// the perl registered cbTalk as default twice; the (priority 1,
 	// continue false) one answers every unknown !command
 	ctx.Cmd.RegisterDefault(m.Name(), 0, true, m.cbTalk)
@@ -139,33 +158,78 @@ func (m *Module) Unload() error {
 	return nil
 }
 
-func (m *Module) storeKey() string {
-	return fmt.Sprintf("dictionary_%d_%s", m.order, m.dictionary)
+func (m *Module) storeKey(d *dict) string {
+	return fmt.Sprintf("dictionary_%d_%s", m.order, d.name)
 }
 
-// loadDictionary bulk-loads the per-word rows, migrating a legacy
+// nickDict returns (creating if needed) the per-nick dictionary for a
+// talker. Nick dicts are named nick_<lowercased nick>: IRC nicks are
+// case-insensitive and never contain a colon, so the storage key
+// dictionary_<order>_nick_<nick>:<word> splits back unambiguously.
+func (m *Module) nickDict(nick string) *dict {
+	name := "nick_" + strings.ToLower(nick)
+	d := m.nicks[name]
+	if d == nil {
+		d = newDict(name)
+		m.nicks[name] = d
+	}
+	return d
+}
+
+// loadDictionaries bulk-loads the per-word rows of every dictionary
+// (the default one plus the nick_* dicts), migrating a legacy
 // whole-dictionary blob into rows once (the blob wins over any rows
 // from a previously interrupted migration; the delete only happens
 // after all rows landed, so a crash mid-migration is retried).
-func (m *Module) loadDictionary() error {
-	m.chains = make(map[string]*Node)
+func (m *Module) loadDictionaries() error {
+	m.main = newDict(m.dictionary)
+	m.nicks = make(map[string]*dict)
 	all, err := m.ctx.Store.GetAll(m.Name())
 	if err != nil {
 		return fmt.Errorf("markov: load dictionary: %w", err)
 	}
-	prefix := m.storeKey() + ":"
+	prefix := fmt.Sprintf("dictionary_%d_", m.order)
 	for name, raw := range all {
-		w, ok := strings.CutPrefix(name, prefix)
+		rest, ok := strings.CutPrefix(name, prefix)
 		if !ok {
 			continue
+		}
+		// dict names never contain a colon; words can (":" is a valid
+		// punctuation token), so cut at the first one
+		dictName, w, ok := strings.Cut(rest, ":")
+		if !ok {
+			continue // the legacy blob, handled below
+		}
+		var d *dict
+		switch {
+		case dictName == m.dictionary:
+			d = m.main
+		case strings.HasPrefix(dictName, "nick_"):
+			if m.nicks[dictName] == nil {
+				m.nicks[dictName] = newDict(dictName)
+			}
+			d = m.nicks[dictName]
+		default:
+			continue // some other dictionary, not ours to load
 		}
 		nd := &Node{}
 		if err := json.Unmarshal(raw, nd); err != nil {
 			return fmt.Errorf("markov: load word %q: %w", w, err)
 		}
-		m.chains[w] = nd
+		d.chains[w] = nd
 	}
-	raw, isLegacy := all[m.storeKey()]
+	if err := m.migrateLegacyBlob(all); err != nil {
+		return err
+	}
+	m.main.rebuildKeys()
+	for _, d := range m.nicks {
+		d.rebuildKeys()
+	}
+	return nil
+}
+
+func (m *Module) migrateLegacyBlob(all map[string]json.RawMessage) error {
+	raw, isLegacy := all[m.storeKey(m.main)]
 	if !isLegacy {
 		return nil
 	}
@@ -173,10 +237,10 @@ func (m *Module) loadDictionary() error {
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return fmt.Errorf("markov: parse legacy dictionary: %w", err)
 	}
-	m.chains = legacy
+	m.main.chains = legacy
 	batch := make(map[string]any, len(legacy))
 	for w, nd := range legacy {
-		batch[prefix+w] = nd
+		batch[m.storeKey(m.main)+":"+w] = nd
 	}
 	if err := m.ctx.Store.PutMany(m.Name(), batch); err != nil {
 		return fmt.Errorf("markov: migrate dictionary to rows: %w", err)
@@ -184,10 +248,10 @@ func (m *Module) loadDictionary() error {
 	// keep the blob under a backup name instead of deleting it: a
 	// rolled-back pre-rows build would otherwise boot with an empty
 	// dictionary (it can be renamed back by hand)
-	if err := m.ctx.Store.Put(m.Name(), m.storeKey()+"_blob_backup", json.RawMessage(raw)); err != nil {
+	if err := m.ctx.Store.Put(m.Name(), m.storeKey(m.main)+"_blob_backup", json.RawMessage(raw)); err != nil {
 		return fmt.Errorf("markov: back up legacy dictionary: %w", err)
 	}
-	if err := m.ctx.Store.Delete(m.Name(), m.storeKey()); err != nil {
+	if err := m.ctx.Store.Delete(m.Name(), m.storeKey(m.main)); err != nil {
 		return fmt.Errorf("markov: drop legacy dictionary: %w", err)
 	}
 	slog.Info("markov: migrated dictionary blob to per-word rows", "words", len(legacy))
@@ -197,16 +261,36 @@ func (m *Module) loadDictionary() error {
 // markDirty queues the word's subtree for the next saver flush. The
 // node pointer is stable (words are never deleted), so the flush
 // serializes whatever the counts are by then.
-func (m *Module) markDirty(w string) {
-	nd := m.chains[w]
-	m.ctx.Saver.Mark(m.Name(), m.storeKey()+":"+w, func() any { return nd })
+func (m *Module) markDirty(d *dict, w string) {
+	nd := d.chains[w]
+	m.ctx.Saver.Mark(m.Name(), m.storeKey(d)+":"+w, func() any { return nd })
 }
 
 func (m *Module) cbTalk(d *cmd.Data) bool {
 	if d.Event.SenderMe {
 		return false
 	}
-	m.ctx.Privmsg(d.Event.Channel, m.randomMessage(d.Data))
+	m.ctx.Privmsg(d.Event.Channel, m.randomMessage(m.main, d.Data))
+	return true
+}
+
+// cbTalkLike is "!talklike <nick> [seed]": talk from one talker's own
+// dictionary (bootstrapped from a decade of #bvs logs, then live).
+func (m *Module) cbTalkLike(d *cmd.Data) bool {
+	if d.Event.SenderMe {
+		return false
+	}
+	nick, seed, _ := strings.Cut(strings.TrimSpace(d.Data), " ")
+	if nick == "" {
+		m.ctx.Privmsg(d.Event.Channel, "Gebruik: !talklike <nick> [seed]")
+		return true
+	}
+	nd := m.nicks["nick_"+strings.ToLower(nick)]
+	if nd == nil || len(nd.chains) == 0 {
+		m.ctx.Privmsg(d.Event.Channel, fmt.Sprintf("Van %s heb ik nog niks geleerd.", nick))
+		return true
+	}
+	m.ctx.Privmsg(d.Event.Channel, m.randomMessage(nd, seed))
 	return true
 }
 
@@ -219,7 +303,7 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 	}
 	if ev.Query {
 		if g := queryTalkRe.FindStringSubmatch(ev.Msg); g != nil {
-			m.ctx.Privmsg(ev.Channel, m.randomMessage(g[1]))
+			m.ctx.Privmsg(ev.Channel, m.randomMessage(m.main, g[1]))
 			return bus.Replied, nil
 		}
 		return bus.None, nil
@@ -233,7 +317,10 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 	if g := cmdWordRe.FindStringSubmatch(ev.Msg); g != nil && m.ctx.Cmd.Has(g[1]) {
 		return bus.None, nil
 	}
-	m.addLine(ev.Msg)
+	m.addLine(m.main, ev.Msg)
+	if ev.Sender.Nick != "" {
+		m.addLine(m.nickDict(ev.Sender.Nick), ev.Msg)
+	}
 	return bus.None, nil
 }
 
@@ -243,13 +330,18 @@ func isBot(nick string) bool {
 
 // --- learning
 
-func (m *Module) addLine(msg string) {
+// LearnLine folds one chat line into chains: sanitized words, windows
+// of order+1, per-level counts, closing dot unless the line already
+// ends. Returns the top-level words touched (the module marks those
+// dirty; offline imports like tools/bvsimport ignore them). Exported
+// so the bootstrap tool learns EXACTLY like the live module.
+func LearnLine(chains map[string]*Node, order int, msg string) (touched []string) {
 	var words []string
 	for w := range strings.FieldsSeq(msg) {
 		words = append(words, sanitizeWord(w)...)
 	}
 	if len(words) == 0 {
-		return
+		return nil
 	}
 	last := words[len(words)-1]
 	if !isEol(last) && !isBadEnd(last) {
@@ -257,36 +349,34 @@ func (m *Module) addLine(msg string) {
 	}
 
 	var prev []string
-	for len(prev) < m.order && len(words) > 0 {
+	for len(prev) < order && len(words) > 0 {
 		prev = append(prev, words[0])
 		words = words[1:]
 	}
 	if len(words) == 0 {
-		m.addWords(prev)
+		touched = append(touched, addWords(chains, order, prev))
 	} else {
 		for len(words) > 0 {
 			prev = append(prev, words[0])
 			words = words[1:]
-			m.addWords(prev)
+			touched = append(touched, addWords(chains, order, prev))
 			prev = prev[1:]
 		}
 	}
-
+	return touched
 }
 
-// addWords bumps the chain counts along one window of order+1 words.
-func (m *Module) addWords(words []string) {
+// addWords bumps the chain counts along one window of order+1 words
+// and returns the window's top word.
+func addWords(chains map[string]*Node, order int, words []string) string {
 	var nd *Node
-	for i := 0; i <= m.order && i < len(words); i++ {
+	for i := 0; i <= order && i < len(words); i++ {
 		w := words[i]
 		if i == 0 {
-			if m.chains[w] == nil {
-				m.chains[w] = &Node{}
-				m.keys = append(m.keys, w)
-				slices.Sort(m.keys)
+			if chains[w] == nil {
+				chains[w] = &Node{}
 			}
-			nd = m.chains[w]
-			m.markDirty(w)
+			nd = chains[w]
 		} else {
 			if nd.Children == nil {
 				nd.Children = make(map[string]*Node)
@@ -297,6 +387,19 @@ func (m *Module) addWords(words []string) {
 			nd = nd.Children[w]
 		}
 		nd.Count++
+	}
+	return words[0]
+}
+
+// addLine learns one line into a dict, marking touched words dirty and
+// keeping the top-word cache current.
+func (m *Module) addLine(d *dict, msg string) {
+	before := len(d.chains)
+	for _, w := range LearnLine(d.chains, m.order, msg) {
+		m.markDirty(d, w)
+	}
+	if len(d.chains) != before {
+		d.rebuildKeys()
 	}
 }
 
@@ -336,14 +439,14 @@ func isEol(w string) bool {
 
 // --- generation
 
-func (m *Module) randomMessage(seed string) string {
+func (m *Module) randomMessage(d *dict, seed string) string {
 	var words []string
 	for w := range strings.FieldsSeq(seed) {
 		words = append(words, sanitizeWord(w)...)
 	}
 	looper := 0
 	for {
-		w := m.randomWord(words)
+		w := m.randomWord(d, words)
 		if w == "" {
 			if len(words) > 6 {
 				words = append(words, ".") // just doesn't end; we help
@@ -369,41 +472,41 @@ func (m *Module) randomMessage(seed string) string {
 // randomWord picks the next word after words, using the longest chain
 // that exists (with a small random chance to drop an order for
 // variety), falling back to a uniform random dictionary word.
-func (m *Module) randomWord(words []string) string {
+func (m *Module) randomWord(d *dict, words []string) string {
 	last := words
 	if len(last) > m.order {
 		last = last[len(last)-m.order:]
 	}
-	if len(last) == 0 || m.chains[last[len(last)-1]] == nil {
-		return m.randomChainWord()
+	if len(last) == 0 || d.chains[last[len(last)-1]] == nil {
+		return m.randomChainWord(d)
 	}
-	if nd := m.findMaxOrderChain(last); nd != nil {
+	if nd := m.findMaxOrderChain(d, last); nd != nil {
 		if w := m.weightedPick(nd); w != "" {
 			return w
 		}
 	}
-	return m.randomChainWord()
+	return m.randomChainWord(d)
 }
 
 // randomChainWord is a uniform pick over all top-level words; empty
 // when the dictionary is empty.
-func (m *Module) randomChainWord() string {
-	if len(m.keys) == 0 {
+func (m *Module) randomChainWord(d *dict) string {
+	if len(d.keys) == 0 {
 		return ""
 	}
-	return m.keys[int(m.rand()*float64(len(m.keys)))%len(m.keys)]
+	return d.keys[int(m.rand()*float64(len(d.keys)))%len(d.keys)]
 }
 
 // findMaxOrderChain walks the longest existing chain for the last
 // words, dropping an order on a miss or on the perl's variety roll
 // (p = (1/(children+1))^2 / 4, the +1 being its __count key).
-func (m *Module) findMaxOrderChain(last []string) *Node {
+func (m *Module) findMaxOrderChain(d *dict, last []string) *Node {
 	for order := min(m.order, len(last)); order > 0; order-- {
 		var nd *Node
 		ok := true
 		for i, w := range last[len(last)-order:] {
 			if i == 0 {
-				nd = m.chains[w]
+				nd = d.chains[w]
 			} else {
 				nd = nd.Children[w]
 			}
@@ -486,7 +589,7 @@ func (m *Module) scheduleIdleTalk(channel string) {
 func (m *Module) idleTalk(channel string) {
 	st := m.idleFor(channel)
 	st.set = false
-	message := m.randomMessage("")
+	message := m.randomMessage(m.main, "")
 	if int(m.rand()*16) == 0 {
 		message = "Lala..." // once every while simply pick a preset
 	}
