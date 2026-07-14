@@ -174,7 +174,7 @@ func TestCoreAdminPort(t *testing.T) {
 		done <- Run(ctx, Config{
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: storage.NewMemory(), Auth: a, AdminListener: adminLn,
-			Dial:      func() (net.Conn, error) { return client, nil },
+			Dial: func() (net.Conn, error) { return client, nil },
 		})
 	}()
 	t.Cleanup(func() {
@@ -377,7 +377,7 @@ func TestCoreConfPersistAcrossRuns(t *testing.T) {
 		done <- Run(ctx, Config{
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: store, Auth: a, AdminListener: adminLn,
-			Dial:      func() (net.Conn, error) { return client, nil },
+			Dial: func() (net.Conn, error) { return client, nil },
 		})
 	}()
 	t.Cleanup(func() {
@@ -455,7 +455,7 @@ func TestCoreAdminJoinPart(t *testing.T) {
 		done <- Run(ctx, Config{
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: store, Auth: a, AdminListener: adminLn,
-			Dial:      func() (net.Conn, error) { return client, nil },
+			Dial: func() (net.Conn, error) { return client, nil },
 		})
 	}()
 	t.Cleanup(func() {
@@ -667,7 +667,7 @@ func TestCoreMetricsEndpoint(t *testing.T) {
 			Network: "test", Nick: "Meretrix", Channels: []string{"#testing"},
 			Store: storage.NewMemory(), Modules: []module.Module{&echoModule{}, &broadcaster{}},
 			Metrics: reg, MetricsAddr: metricsLn.Addr().String(),
-			Dial:      func() (net.Conn, error) { return client, nil },
+			Dial: func() (net.Conn, error) { return client, nil },
 		})
 	}()
 	t.Cleanup(func() { cancel(); server.Close(); <-done })
