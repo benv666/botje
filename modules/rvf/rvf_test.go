@@ -498,6 +498,21 @@ func TestQueryTimeoutSilent(t *testing.T) {
 	}
 }
 
+// !commands in a query mid-game belong to the command registry: the
+// game's query-noise fallback must not butt in with a help line first
+// (live wart: "!stop" got "Zeg draai, ..." before "Spel gestopt").
+func TestQueryCommandsSkipTheHelpLine(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.rolls = []int{0}
+	f.query("BenV", "!rvf")
+	f.take()
+	f.query("BenV", "!stop")
+	out := f.take()
+	if len(out) != 1 || !strings.Contains(out[0], "Spel gestopt") {
+		t.Fatalf("query !stop = %q, want only the stop", out)
+	}
+}
+
 func TestSpinFirstHint(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.startGame("#radvanfortuin", "BenV")
