@@ -112,15 +112,16 @@ func TestSentenceGetsClosingDot(t *testing.T) {
 	}
 }
 
-func TestBadEndNoDotRunsAway(t *testing.T) {
+func TestBadEndTerminatesCleanly(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.msg("BenV", "#testing", "dit eindigt op de")
-	// "de" is a bad end: no dot appended, so this tiny chain never
-	// reaches an EoL and the runaway guard closes with "...."
-	f.msg("BenV", "#testing", "!talk dit")
+	// "de" is a bad end: no dot is appended, but the END sentinel still
+	// terminates the walk. Before the sentinels this chain dead-ended
+	// and the runaway guard produced "*BLLEUEURRURUHGHG*...." noise.
+	f.msg("BenV", "#testing", "!talk dit eindigt")
 	got := f.take()
-	if len(got) != 1 || !strings.HasSuffix(got[0], "....") {
-		t.Fatalf("talk = %q, want runaway cap", got)
+	if len(got) != 1 || got[0] != "#testing|Dit eindigt op de" {
+		t.Fatalf("talk = %q, want the clean bad-end sentence", got)
 	}
 }
 
@@ -160,11 +161,14 @@ func TestUnknownSeedPicksRandom(t *testing.T) {
 func TestVarietyRollDropsOrder(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.msg("BenV", "#testing", "aap noot mies.")
-	f.rand = []float64{0.001, 0.0} // roll fails order 1, random picks keys[0]
+	// two-word seed keeps this on the plain forward walk (a single
+	// word would go middle-out); roll fails order 1, the random pick
+	// lands on keys[1] = "aap"
+	f.rand = []float64{0.001, 0.3}
 	f.ri = 0
-	f.msg("BenV", "#testing", "!talk aap")
+	f.msg("BenV", "#testing", "!talk aap noot")
 	got := f.take()
-	want := "#testing|Aap aap noot mies."
+	want := "#testing|Aap noot aap noot mies."
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("talk = %q, want %q (random word injected)", got, want)
 	}
@@ -243,10 +247,11 @@ func TestPersistPerWordViaSaver(t *testing.T) {
 			wordRows++
 		}
 	}
-	// top-level words: zin nummer een hier (the closing dot is only
-	// ever a child, never a window head)
-	if wordRows != 4 {
-		t.Fatalf("word rows = %d (%v), want 4", wordRows, names)
+	// top-level words: START hier zin nummer een "." (the dot heads
+	// the final window now that END follows it; END itself is only
+	// ever a child)
+	if wordRows != 6 {
+		t.Fatalf("word rows = %d (%v), want 6", wordRows, names)
 	}
 
 	f2 := newFixture(t, store)
@@ -445,5 +450,85 @@ func TestLearnLineOffline(t *testing.T) {
 	}
 	if chains["aap"].Count != 1 || chains["aap"].Children["noot"].Count != 1 {
 		t.Fatalf("counts off: %+v", chains["aap"])
+	}
+}
+
+// mIRC control codes are stripped at learn time: no color junk in the
+// dictionary, and nobody can forge a sentence sentinel from IRC.
+func TestControlCharsStripped(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "\x0304rood\x03 en \x02vet\x02 spul.")
+	f.msg("BenV", "#testing", "!talk rood")
+	got := f.take()
+	if len(got) != 1 || got[0] != "#testing|Rood en vet spul." {
+		t.Fatalf("talk = %q, want the cleaned words", got)
+	}
+}
+
+// unseeded talk opens at a learned sentence start, not at a uniformly
+// random dictionary word.
+func TestUnseededTalkOpensAtSentenceStart(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "aap noot mies.")
+	f.msg("BenV", "#testing", "!talk")
+	got := f.take()
+	if len(got) != 1 || got[0] != "#testing|Aap noot mies." {
+		t.Fatalf("unseeded talk = %q, want the sentence from its start", got)
+	}
+}
+
+// a single-word seed goes middle-out: backwards from the seed to the
+// sentence start, then forward to the end. Seeding a MIDDLE word
+// reconstructs the whole sentence.
+func TestMiddleOutTalk(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "aap noot mies.")
+	f.msg("BenV", "#testing", "!talk noot")
+	got := f.take()
+	if len(got) != 1 || got[0] != "#testing|Aap noot mies." {
+		t.Fatalf("middle-out talk = %q, want the full sentence", got)
+	}
+}
+
+// a store with forward chains but no reverse dictionary (the live
+// global: years of data that predate the reverse dict) derives it at
+// load, exactly, and persists the result.
+func TestReverseDerivedAtLoad(t *testing.T) {
+	store := storage.NewMemory()
+	f := newFixture(t, store)
+	f.msg("BenV", "#testing", "aap noot mies.")
+	f.msg("BenV", "#testing", "kort en klein")
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
+	}
+	// wipe the reverse rows: this store now looks like the live one
+	names, err := store.Names("markov")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		if strings.HasPrefix(n, "dictionary_1_reverse_") {
+			if err := store.Delete("markov", n); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	f2 := newFixture(t, store)
+	f2.msg("BenV", "#testing", "!talk noot")
+	got := f2.take()
+	if len(got) != 1 || got[0] != "#testing|Aap noot mies." {
+		t.Fatalf("middle-out after derivation = %q", got)
+	}
+	// and the derived rows were persisted for the next boot
+	names, _ = store.Names("markov")
+	revRows := 0
+	for _, n := range names {
+		if strings.HasPrefix(n, "dictionary_1_reverse_") {
+			revRows++
+		}
+	}
+	if revRows == 0 {
+		t.Fatal("derived reverse dictionary not persisted")
 	}
 }
