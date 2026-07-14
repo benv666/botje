@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"go-botje/modules/ego"
+	"go-botje/modules/karma"
+	"go-botje/modules/markov"
 	"go-botje/modules/rss"
 	"go-botje/modules/ticker"
 )
@@ -28,6 +30,81 @@ func dumpDat(t *testing.T, name string) map[string]any {
 		t.Fatalf("%s not valid json: %v", name, err)
 	}
 	return dump
+}
+
+// TestKarmaRealData migrates the actual live snapshot when the
+// gitignored reference tree is present, and verifies counts.
+func TestKarmaRealData(t *testing.T) {
+	dump := dumpDat(t, "IRC_Karma.dat")
+	data, stats, err := karma.MigrateFromPerl(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// counts seen live on 2026-07-03: 3889 global items, servers
+	// fifo/junerules/mibbit
+	if stats.GlobalItems < 3800 {
+		t.Errorf("global items = %d, expected the live ~3889", stats.GlobalItems)
+	}
+	if stats.Servers != 3 {
+		t.Errorf("servers = %d, want 3 (fifo junerules mibbit)", stats.Servers)
+	}
+	if len(data.Global) != stats.GlobalItems {
+		t.Errorf("stats/global mismatch: %d vs %d", stats.GlobalItems, len(data.Global))
+	}
+	// nothing lost: recount the raw dump independently and compare
+	// (the live data has a handful of channel items with no global
+	// entry, predating the update-both-sides code, so counts are the
+	// honest invariant)
+	top := dump["karma"].(map[string]any)
+	rawGlobal := len(top["__GLOBAL_IRC_Karma__"].(map[string]any))
+	rawItems := 0
+	for server, v := range top {
+		if server == "__GLOBAL_IRC_Karma__" {
+			continue
+		}
+		for _, cv := range v.(map[string]any) {
+			rawItems += len(cv.(map[string]any))
+		}
+	}
+	if rawGlobal != stats.GlobalItems || rawItems != stats.ChannelItems {
+		t.Errorf("dump has %d global/%d channel items, transformed %d/%d",
+			rawGlobal, rawItems, stats.GlobalItems, stats.ChannelItems)
+	}
+	t.Logf("migrated: %d global items, %d servers, %d channels, %d channel items",
+		stats.GlobalItems, stats.Servers, stats.Channels, stats.ChannelItems)
+}
+
+// TestMarkovRealData migrates the 29 MB live dictionary when the
+// reference tree is present and verifies counts.
+func TestMarkovRealData(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode")
+	}
+	dump := dumpDat(t, "IRC_Markov.dat")
+	dicts, stats, err := markov.MigrateFromPerl(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// live facts 2026-07-06: one dictionary, 27617 top words
+	if len(stats.Dictionaries) != 1 || stats.Dictionaries[0] != "dictionary_3_default" {
+		t.Errorf("dictionaries = %v", stats.Dictionaries)
+	}
+	if stats.TopWords < 27000 {
+		t.Errorf("top words = %d, expected the live ~27617", stats.TopWords)
+	}
+	// recount the raw dump independently: every top word carried over
+	raw := dump["dictionary_3_default"].(map[string]any)
+	rawWords := 0
+	for w := range raw {
+		if len(w) < 2 || w[:2] != "__" {
+			rawWords++
+		}
+	}
+	if rawWords != len(dicts["dictionary_3_default"]) {
+		t.Errorf("dump has %d words, transformed %d", rawWords, len(dicts["dictionary_3_default"]))
+	}
+	t.Logf("migrated: %d top words, total count %d", stats.TopWords, stats.TotalCount)
 }
 
 func TestEgoRealData(t *testing.T) {

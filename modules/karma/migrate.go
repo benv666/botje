@@ -1,27 +1,24 @@
-package main
+package karma
 
-import (
-	"fmt"
+import "fmt"
 
-	"go-botje/modules/karma"
-)
-
-// karmaStats is the verification summary for a karma migration.
-type karmaStats struct {
+// MigrateStats reports what a Perl import contained.
+type MigrateStats struct {
 	GlobalItems  int
 	Servers      int
 	Channels     int
 	ChannelItems int
 }
 
-// karmaFromPerl maps the Perl karma hash (global entries mixed into
-// the server level under __GLOBAL_IRC_Karma__) onto the Go layout.
-func karmaFromPerl(dump map[string]any) (karma.Data, karmaStats, error) {
-	data := karma.Data{
-		Servers: make(map[string]map[string]map[string]*karma.Entry),
-		Global:  make(map[string]*karma.Entry),
+// MigrateFromPerl maps the Perl karma hash (global entries mixed into
+// the server level under __GLOBAL_IRC_Karma__) onto the Go storage
+// value (namespace "karma", key "karma").
+func MigrateFromPerl(dump map[string]any) (Data, MigrateStats, error) {
+	data := Data{
+		Servers: make(map[string]map[string]map[string]*Entry),
+		Global:  make(map[string]*Entry),
 	}
-	var stats karmaStats
+	var stats MigrateStats
 
 	top, ok := dump["karma"].(map[string]any)
 	if !ok {
@@ -48,14 +45,14 @@ func karmaFromPerl(dump map[string]any) (karma.Data, karmaStats, error) {
 			return data, stats, fmt.Errorf("karma: server %q is %T", server, v)
 		}
 		stats.Servers++
-		data.Servers[server] = make(map[string]map[string]*karma.Entry)
+		data.Servers[server] = make(map[string]map[string]*Entry)
 		for channel, cv := range channels {
 			items, ok := cv.(map[string]any)
 			if !ok {
 				return data, stats, fmt.Errorf("karma: %s/%s is %T", server, channel, cv)
 			}
 			stats.Channels++
-			data.Servers[server][channel] = make(map[string]*karma.Entry)
+			data.Servers[server][channel] = make(map[string]*Entry)
 			for item, e := range items {
 				entry, err := entryFromPerl(e)
 				if err != nil {
@@ -69,16 +66,16 @@ func karmaFromPerl(dump map[string]any) (karma.Data, karmaStats, error) {
 	return data, stats, nil
 }
 
-func entryFromPerl(v any) (*karma.Entry, error) {
+func entryFromPerl(v any) (*Entry, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("entry is %T", v)
 	}
-	e := &karma.Entry{}
-	if k, ok := toInt(m["karma"]); ok {
+	e := &Entry{}
+	if k, ok := migInt(m["karma"]); ok {
 		e.Karma = k
 	}
-	if l, ok := toInt(m["last"]); ok {
+	if l, ok := migInt(m["last"]); ok {
 		e.Last = int64(l)
 	}
 	if reasons, ok := m["reason"].(map[string]any); ok {
@@ -90,7 +87,7 @@ func entryFromPerl(v any) (*karma.Entry, error) {
 			}
 			e.Reason[ud] = make(map[string]int)
 			for reason, cv := range counts {
-				if c, ok := toInt(cv); ok {
+				if c, ok := migInt(cv); ok {
 					e.Reason[ud][reason] = c
 				}
 			}
@@ -99,9 +96,9 @@ func entryFromPerl(v any) (*karma.Entry, error) {
 	return e, nil
 }
 
-// toInt handles json numbers and the strings Perl sometimes stores
+// migInt handles json numbers and the strings Perl sometimes stores
 // numbers as.
-func toInt(v any) (int, bool) {
+func migInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case float64:
 		return int(n), true
