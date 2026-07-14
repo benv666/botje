@@ -1,8 +1,14 @@
 // Package markov learns channel chatter into word chains and talks
-// back: !talk [seed], any unknown !command (the "!je moeder" feature,
-// which also means no Levenshtein suggestions while markov is loaded,
-// same as the Perl), "talk" in query, and an optional idle talker.
-// Ported from IRC_Markov.pm.
+// back: !talk [seed], !talklike <nick> [seed] (per-nick dictionaries),
+// any unknown !command (the "!je moeder" feature, which also means no
+// Levenshtein suggestions while markov is loaded, same as the Perl),
+// "talk" in query, and an optional idle talker. Ported from
+// IRC_Markov.pm, then extended (2026-07-14): sentence sentinels wrap
+// every learned line, and a reverse-trained copy of the global
+// dictionary powers MegaHAL-style middle-out generation: a single-word
+// !talk seed extends backwards to the sentence start first, then
+// forward to the end, so the bot talks ABOUT the word instead of only
+// FROM it.
 //
 // The dictionary lives in memory and persists as one row per top-level
 // word under namespace "markov" (name "dictionary_<order>_<dict>:<word>"),
@@ -32,6 +38,7 @@ import (
 	"unicode"
 
 	"go-botje/internal/bus"
+	"go-botje/internal/format"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/module"
 	"go-botje/internal/sched"
@@ -43,6 +50,21 @@ type Node struct {
 	Count    int              `json:"c"`
 	Children map[string]*Node `json:"n,omitempty"`
 }
+
+// Sentence sentinels (2026-07-14, BenV): every learned line is wrapped
+// as [START] w0..wn [END], so generation knows where sentences begin
+// (unseeded talk used to open at a uniformly random word) and end
+// (stopword-ending lines used to leave dead-end chains, and a dead end
+// meant a jump to a random word mid-sentence). Control characters:
+// sanitizeWord strips those from real input, so no IRC message can
+// forge them. Data learned before the sentinels keeps working, it just
+// lacks the markers.
+const (
+	tokStart = "\x02"
+	tokEnd   = "\x03"
+)
+
+func isSentinel(w string) bool { return w == tokStart || w == tokEnd }
 
 var (
 	botNickRe     = regexp.MustCompile(`(?i)(the_baby|hoer|dromertje|calvin|bot|lippy)`)
@@ -79,11 +101,14 @@ func newDict(name string) *dict {
 }
 
 // rebuildKeys refreshes the sorted top-word cache (the perl cached
-// hash order; sorted is deterministic).
+// hash order; sorted is deterministic). Sentinels are excluded: a
+// uniform random pick must never open with one.
 func (d *dict) rebuildKeys() {
 	d.keys = make([]string, 0, len(d.chains))
 	for w := range d.chains {
-		d.keys = append(d.keys, w)
+		if !isSentinel(w) {
+			d.keys = append(d.keys, w)
+		}
 	}
 	slices.Sort(d.keys)
 }
@@ -98,6 +123,7 @@ type Module struct {
 	order      int
 	dictionary string
 	main       *dict
+	rev        *dict                 // main trained on reversed lines (middle-out)
 	nicks      map[string]*dict      // dict name -> dict
 	idle       map[string]*idleState // per channel
 }
@@ -183,6 +209,7 @@ func (m *Module) nickDict(nick string) *dict {
 // after all rows landed, so a crash mid-migration is retried).
 func (m *Module) loadDictionaries() error {
 	m.main = newDict(m.dictionary)
+	m.rev = newDict("reverse_" + m.dictionary)
 	m.nicks = make(map[string]*dict)
 	all, err := m.ctx.Store.GetAll(m.Name())
 	if err != nil {
@@ -204,6 +231,8 @@ func (m *Module) loadDictionaries() error {
 		switch {
 		case dictName == m.dictionary:
 			d = m.main
+		case dictName == m.rev.name:
+			d = m.rev
 		case strings.HasPrefix(dictName, "nick_"):
 			if m.nicks[dictName] == nil {
 				m.nicks[dictName] = newDict(dictName)
@@ -221,11 +250,92 @@ func (m *Module) loadDictionaries() error {
 	if err := m.migrateLegacyBlob(all); err != nil {
 		return err
 	}
+	if err := m.deriveReverse(); err != nil {
+		return err
+	}
 	m.main.rebuildKeys()
+	m.rev.rebuildKeys()
 	for _, d := range m.nicks {
 		d.rebuildKeys()
 	}
 	return nil
+}
+
+// deriveReverse builds the reverse dictionary from the forward one,
+// once: the trie IS the multiset of learned windows (a node's count
+// minus its children's sum = windows that ended at that depth), so
+// inserting every window reversed reproduces exactly what learning
+// the reversed lines would have stored. The global dictionary predates
+// the logs we have, so this is the only way to bootstrap it.
+func (m *Module) deriveReverse() error {
+	if len(m.rev.chains) > 0 || len(m.main.chains) == 0 {
+		return nil
+	}
+	path := make([]string, 0, m.order+1)
+	var walk func(nd *Node)
+	walk = func(nd *Node) {
+		childSum := 0
+		for w, ch := range nd.Children {
+			childSum += ch.Count
+			path = append(path, w)
+			walk(ch)
+			path = path[:len(path)-1]
+		}
+		if excess := nd.Count - childSum; excess > 0 {
+			insertReversed(m.rev.chains, path, excess)
+		}
+	}
+	for w, nd := range m.main.chains {
+		path = append(path[:0], w)
+		walk(nd)
+	}
+	batch := make(map[string]any, len(m.rev.chains))
+	for w, nd := range m.rev.chains {
+		batch[m.storeKey(m.rev)+":"+w] = nd
+	}
+	if err := m.ctx.Store.PutMany(m.Name(), batch); err != nil {
+		return fmt.Errorf("markov: persist derived reverse dictionary: %w", err)
+	}
+	slog.Info("markov: derived reverse dictionary from forward chains", "words", len(m.rev.chains))
+	return nil
+}
+
+// insertReversed adds one window, reversed, with the given count.
+func insertReversed(chains map[string]*Node, path []string, count int) {
+	var nd *Node
+	for i := len(path) - 1; i >= 0; i-- {
+		w := path[i]
+		if i == len(path)-1 {
+			if chains[w] == nil {
+				chains[w] = &Node{}
+			}
+			nd = chains[w]
+		} else {
+			if nd.Children == nil {
+				nd.Children = make(map[string]*Node)
+			}
+			if nd.Children[w] == nil {
+				nd.Children[w] = &Node{}
+			}
+			nd = nd.Children[w]
+		}
+		nd.Count += count
+	}
+}
+
+// addReversed learns one line backwards into the reverse dictionary
+// (global only: !talklike stays forward, the reverse of every nick
+// dict would double another gigabyte).
+func (m *Module) addReversed(msg string) {
+	tokens := lineTokens(msg)
+	slices.Reverse(tokens)
+	before := len(m.rev.chains)
+	for _, w := range learnTokens(m.rev.chains, m.order, tokens) {
+		m.markDirty(m.rev, w)
+	}
+	if len(m.rev.chains) != before {
+		m.rev.rebuildKeys()
+	}
 }
 
 func (m *Module) migrateLegacyBlob(all map[string]json.RawMessage) error {
@@ -270,7 +380,7 @@ func (m *Module) cbTalk(d *cmd.Data) bool {
 	if d.Event.SenderMe {
 		return false
 	}
-	m.ctx.Privmsg(d.Event.Channel, m.randomMessage(m.main, d.Data))
+	m.ctx.Privmsg(d.Event.Channel, m.talkMessage(d.Data))
 	return true
 }
 
@@ -303,7 +413,7 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 	}
 	if ev.Query {
 		if g := queryTalkRe.FindStringSubmatch(ev.Msg); g != nil {
-			m.ctx.Privmsg(ev.Channel, m.randomMessage(m.main, g[1]))
+			m.ctx.Privmsg(ev.Channel, m.talkMessage(g[1]))
 			return bus.Replied, nil
 		}
 		return bus.None, nil
@@ -318,6 +428,7 @@ func (m *Module) onPrivmsg(ev *bus.Event) (bus.Handled, any) {
 		return bus.None, nil
 	}
 	m.addLine(m.main, ev.Msg)
+	m.addReversed(ev.Msg)
 	if ev.Sender.Nick != "" {
 		m.addLine(m.nickDict(ev.Sender.Nick), ev.Msg)
 	}
@@ -330,24 +441,41 @@ func isBot(nick string) bool {
 
 // --- learning
 
-// LearnLine folds one chat line into chains: sanitized words, windows
-// of order+1, per-level counts, closing dot unless the line already
-// ends. Returns the top-level words touched (the module marks those
-// dirty; offline imports like tools/bvsimport ignore them). Exported
-// so the bootstrap tool learns EXACTLY like the live module.
-func LearnLine(chains map[string]*Node, order int, msg string) (touched []string) {
-	var words []string
+// lineTokens sanitizes one chat line into the learned token sequence:
+// [START] w0..wn [.]? [END]. The closing dot keeps the perl rule (dot
+// unless the line already ends or ends on a stopword); END lands on
+// every line regardless, which is what makes stopword endings
+// terminate cleanly instead of dead-ending.
+func lineTokens(msg string) []string {
+	msg = format.Strip(msg) // mIRC/ANSI codes: no color junk in the dict
+	words := []string{tokStart}
 	for w := range strings.FieldsSeq(msg) {
 		words = append(words, sanitizeWord(w)...)
 	}
-	if len(words) == 0 {
+	if len(words) == 1 {
 		return nil
 	}
 	last := words[len(words)-1]
 	if !isEol(last) && !isBadEnd(last) {
 		words = append(words, ".")
 	}
+	return append(words, tokEnd)
+}
 
+// LearnLine folds one chat line into chains: sanitized words wrapped
+// in sentence sentinels, windows of order+1, per-level counts. Returns
+// the top-level words touched (the module marks those dirty; offline
+// imports like tools/bvsimport ignore them). Exported so the bootstrap
+// tool learns EXACTLY like the live module.
+func LearnLine(chains map[string]*Node, order int, msg string) (touched []string) {
+	return learnTokens(chains, order, lineTokens(msg))
+}
+
+// learnTokens windows an already-tokenized sequence into chains.
+func learnTokens(chains map[string]*Node, order int, words []string) (touched []string) {
+	if len(words) == 0 {
+		return nil
+	}
 	var prev []string
 	for len(prev) < order && len(words) > 0 {
 		prev = append(prev, words[0])
@@ -403,12 +531,18 @@ func (m *Module) addLine(d *dict, msg string) {
 	}
 }
 
-// sanitizeWord normalizes one token: lowercased, known nicks
-// capitalized, trailing punctuation split off, contractions kept whole,
-// non-words dropped.
+// sanitizeWord normalizes one token: control characters stripped (mIRC
+// color/bold codes, and nobody forges a sentence sentinel), lowercased,
+// known nicks capitalized, trailing punctuation split off, contractions
+// kept whole, non-words dropped.
 func sanitizeWord(w string) []string {
+	w = strings.Map(func(r rune) rune {
+		if r < 0x20 {
+			return -1
+		}
+		return r
+	}, w)
 	w = strings.TrimSpace(w)
-	w = strings.NewReplacer("\r", "", "\n", "").Replace(w)
 	w = strings.ToLower(w)
 	if nickRe.MatchString(w) {
 		w = capitalize(w)
@@ -424,6 +558,9 @@ func sanitizeWord(w string) []string {
 
 func capitalize(w string) string {
 	r := []rune(w)
+	if len(r) == 0 {
+		return w
+	}
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
 }
@@ -439,21 +576,51 @@ func isEol(w string) bool {
 
 // --- generation
 
+// talkMessage is the seed-aware entry point behind !talk, query talk
+// and the unknown-!command default: a single-word seed known to the
+// reverse dictionary gets the middle-out treatment (predict backwards
+// to the sentence start, then forward to the end); everything else is
+// the classic forward walk.
+func (m *Module) talkMessage(seed string) string {
+	var words []string
+	for w := range strings.FieldsSeq(seed) {
+		words = append(words, sanitizeWord(w)...)
+	}
+	if len(words) == 1 && m.rev != nil && m.rev.chains[words[0]] != nil {
+		return m.middleOut(words[0])
+	}
+	return m.randomMessageFrom(m.main, words)
+}
+
 func (m *Module) randomMessage(d *dict, seed string) string {
 	var words []string
 	for w := range strings.FieldsSeq(seed) {
 		words = append(words, sanitizeWord(w)...)
 	}
+	return m.randomMessageFrom(d, words)
+}
+
+// randomMessageFrom walks forward from the given context until the
+// sentence ends. Unseeded walks open at the START sentinel when the
+// dictionary has one, so sentences begin like real sentences instead
+// of at a uniformly random word.
+func (m *Module) randomMessageFrom(d *dict, words []string) string {
+	if len(words) == 0 && d.chains[tokStart] != nil {
+		words = []string{tokStart}
+	}
 	looper := 0
 	for {
 		w := m.randomWord(d, words)
-		if w == "" {
+		switch {
+		case w == tokEnd:
+			return render(words) // a learned sentence end
+		case w == "" || w == tokStart:
 			if len(words) > 6 {
 				words = append(words, ".") // just doesn't end; we help
 			} else {
 				words = append(words, "*BLLEUEURRURUHGHG*.")
 			}
-		} else {
+		default:
 			words = append(words, w)
 		}
 		looper++
@@ -461,10 +628,59 @@ func (m *Module) randomMessage(d *dict, seed string) string {
 			words = append(words, "....") // this is getting rediculous
 		}
 		if isEol(words[len(words)-1]) {
+			return render(words)
+		}
+	}
+}
+
+// middleOut is the MegaHAL-style keyword walk: extend backwards from
+// the seed through the reverse dictionary until the sentence start,
+// then forward through the main one until the end.
+func (m *Module) middleOut(seed string) string {
+	back := []string{seed}
+	for range 15 {
+		w := m.pickNext(m.rev, back)
+		if w == "" || w == tokEnd {
+			break
+		}
+		back = append(back, w)
+		if w == tokStart {
 			break
 		}
 	}
-	r := strings.Join(words, " ")
+	// reverse into sentence order; the START marker (when the walk got
+	// that far) lands in front and sharpens the forward context
+	words := make([]string, 0, len(back))
+	for i := len(back) - 1; i >= 0; i-- {
+		words = append(words, back[i])
+	}
+	return m.randomMessageFrom(m.main, words)
+}
+
+// pickNext extends a context by one word, or "" on a dead end. Unlike
+// randomWord it never jumps to a random word: the backward walk must
+// stop at dead ends, not teleport.
+func (m *Module) pickNext(d *dict, words []string) string {
+	last := words
+	if len(last) > m.order {
+		last = last[len(last)-m.order:]
+	}
+	if nd := m.findMaxOrderChain(d, last); nd != nil {
+		return m.weightedPick(nd)
+	}
+	return ""
+}
+
+// render joins generated tokens into the outgoing line, dropping the
+// sentinels (they are mIRC control codes and must never hit the wire).
+func render(words []string) string {
+	kept := words[:0:0]
+	for _, w := range words {
+		if !isSentinel(w) {
+			kept = append(kept, w)
+		}
+	}
+	r := strings.Join(kept, " ")
 	r = joinPunctRe.ReplaceAllString(r, "$1")
 	return capitalize(r)
 }
@@ -589,7 +805,7 @@ func (m *Module) scheduleIdleTalk(channel string) {
 func (m *Module) idleTalk(channel string) {
 	st := m.idleFor(channel)
 	st.set = false
-	message := m.randomMessage(m.main, "")
+	message := m.talkMessage("")
 	if int(m.rand()*16) == 0 {
 		message = "Lala..." // once every while simply pick a preset
 	}
