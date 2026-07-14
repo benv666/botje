@@ -49,10 +49,14 @@ Order by daily-use value, simplest first within tiers:
 ## Phase 5: migration + cutover
 - [x] tools/migrate: Storable -> JSON dump + import, verified counts. DONE for karma (3889 global items), markov (27614 words/29MB), ego (873 nicks), rss (25 feeds/2959 items) - all proven against live .dat + readable back through a real module. dump.pl aliases dropped Europe/Amsterdam tz -> Brussels for DateTime thaw. Remaining modules (ticker alarms, remind, pizza, lastseen) are small-or-stale: recreate at cutover rather than migrate (pizza .dat empty, lastseen 2017-stale). Add transformers if BenV wants them.
 - [x] Dockerfile (alpine, 21 MB single static binary), compose file (bot + postgres sidecar, admin on host loopback, junerules host pin); verified live: stack up, Meretrix in #testing, migrations auto-ran, health green
-- [ ] Parallel run: go-botje as Meretrix on junerules alongside hoer, same channels read-only-ish, compare behavior
+- [x] Parallel run: go-botje as Meretrix on junerules alongside hoer (2026-07)
 - keeper/core split DONE: botje keeper + core subcommands, keeper as transparent buffering relay over unix socket, core restart leaves IRC session up (SkipGoodbye), verified live against junerules (one IRC connection across a core restart, no reconnect). compose "split" profile added.
-- [ ] Cutover: stop hoer, migrate fresh data dump, go-botje takes nick hoer
-- [ ] Keep Perl image around for rollback
+- [x] Cutover (2026-07-13): hoer stopped, data migrated; the nick stays Meretrix by decision
+- [x] Keep Perl image around for rollback
+
+The rewrite is DONE and in production. Post-parity work (new modules,
+refactors, observability) is tracked in the CLAUDE.md backlogs, not
+here.
 
 ## Definition of done per module
 1. Unit tests for command parsing + output formatting (golden where useful)
