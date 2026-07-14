@@ -328,7 +328,7 @@ func TestWeerShowsMostSevereWarning(t *testing.T) {
  <entry><cap:areaDesc>Noord-Holland</cap:areaDesc><cap:event>fog</cap:event><cap:severity>Moderate</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-nh-mist</cap:identifier></entry>
  <entry><cap:areaDesc>Noord-Holland</cap:areaDesc><cap:event>Extreme Wind</cap:event><cap:severity>Extreme</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-nh-storm</cap:identifier></entry>
 </feed>`
-	f.m.warnAt = time.Time{} // drop the cache Load warmed with the default fixture
+	f.m.warnAt = time.Time{}                // drop the cache Load warmed with the default fixture
 	f.msg("BenV", "#testing", "!weeralarm") // refill via withWarnings
 	f.take()
 	f.msg("BenV", "#testing", "!weer") // Hauwert = Noord-Holland

@@ -162,6 +162,7 @@ func (m *Module) Load(ctx *module.Context) error {
 	ctx.Cmd.Register(m.Name(), "weer", m.cbWeer)
 	ctx.Cmd.Register(m.Name(), "regen", m.cbRegen)
 	ctx.Cmd.Register(m.Name(), "weeralarm", m.cbWeeralarm)
+	ctx.Cmd.Register(m.Name(), "weerdiff", m.cbWeerdiff)
 	if err := ctx.Bus.RegisterHook(m.Name(), "config_changed", m.onConfChanged); err != nil {
 		return err
 	}
@@ -246,7 +247,7 @@ func (m *Module) withFeed(cb func(f *feed, ok bool)) {
 	})
 }
 
-const usage = "Gebruik: !weer [plaats] voor het actuele weer, !regen [plaats] voor de komende twee uur neerslag. Bijv: !weer alkmaar. Zonder plaats: %s."
+const usage = "Gebruik: !weer [plaats] voor het actuele weer, !regen [plaats] voor de komende twee uur neerslag, !weerdiff <plaats1> <plaats2> om te vergelijken. Bijv: !weer alkmaar. Zonder plaats: %s."
 
 func (m *Module) usage() string {
 	return fmt.Sprintf(usage, m.ctx.Conf.String("weather_home"))
@@ -317,32 +318,18 @@ func (m *Module) cbWeer(d *cmd.Data) bool {
 // outside the buienradar station network (abroad, or a Dutch spot with
 // no station within maxStationKm).
 func (m *Module) openMeteoWeer(channel string, g geo) {
-	u := fmt.Sprintf("%s?latitude=%.4f&longitude=%.4f&current=temperature_2m,apparent_temperature,"+
-		"relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code&wind_speed_unit=ms&timezone=auto",
-		meteoURL, g.Lat, g.Lon)
-	m.fetch(u, fetch.Options{}, func(res fetch.Result) {
-		var out struct {
-			Current struct {
-				Temp     float64 `json:"temperature_2m"`
-				Feels    float64 `json:"apparent_temperature"`
-				Humidity float64 `json:"relative_humidity_2m"`
-				WindMS   float64 `json:"wind_speed_10m"`
-				WindDeg  float64 `json:"wind_direction_10m"`
-				Code     int     `json:"weather_code"`
-			} `json:"current"`
-		}
-		if res.Err != nil || json.Unmarshal(res.Body, &out) != nil {
+	m.meteoConditions(g, func(c conditions, ok bool) {
+		if !ok {
 			m.ctx.Privmsg(channel, "Het weer is even zoek.")
 			return
 		}
-		c := out.Current
 		var b strings.Builder
-		fmt.Fprintf(&b, "{B}{b}%s{/}: %s", g.Name, temp(c.Temp))
-		if c.Feels != c.Temp {
-			fmt.Fprintf(&b, " (voelt als %s)", temp(c.Feels))
+		fmt.Fprintf(&b, "{B}{b}%s{/}: %s", g.Name, temp(*c.temp))
+		if *c.feels != *c.temp {
+			fmt.Fprintf(&b, " (voelt als %s)", temp(*c.feels))
 		}
 		fmt.Fprintf(&b, ", %s, wind %s %s, %s vochtig",
-			wmoText(c.Code), windDir(degToDir(c.WindDeg)), windBft(msToBft(c.WindMS)), humidity(c.Humidity))
+			c.desc, windDir(c.windDir), windBft(*c.windBft), humidity(*c.humidity))
 		m.ctx.Privmsg(channel, b.String()+m.warnSuffix(g))
 	})
 }
