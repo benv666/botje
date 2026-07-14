@@ -91,13 +91,13 @@ type idleState struct {
 // uniform random picks. The default dict learns all channel chatter;
 // every talker also gets a nick_<nick> dict (!talklike, 2026-07-14).
 type dict struct {
-	name   string // "default", "nick_benv", ...
-	chains map[string]*Node
+	name   string            // "default", "nick_benv", ...
+	chains map[uint32]*cnode // top word id -> compact subtree
 	keys   []string
 }
 
 func newDict(name string) *dict {
-	return &dict{name: name, chains: make(map[string]*Node)}
+	return &dict{name: name, chains: make(map[uint32]*cnode)}
 }
 
 // rebuildKeys refreshes the sorted top-word cache (the perl cached
@@ -105,9 +105,9 @@ func newDict(name string) *dict {
 // uniform random pick must never open with one.
 func (d *dict) rebuildKeys() {
 	d.keys = make([]string, 0, len(d.chains))
-	for w := range d.chains {
-		if !isSentinel(w) {
-			d.keys = append(d.keys, w)
+	for id := range d.chains {
+		if id != tokStartID && id != tokEndID {
+			d.keys = append(d.keys, wordTab.str(id))
 		}
 	}
 	slices.Sort(d.keys)
@@ -245,7 +245,7 @@ func (m *Module) loadDictionaries() error {
 		if err := json.Unmarshal(raw, nd); err != nil {
 			return fmt.Errorf("markov: load word %q: %w", w, err)
 		}
-		d.chains[w] = nd
+		d.chains[wordTab.id(w)] = toCompact(nd)
 	}
 	if err := m.migrateLegacyBlob(all); err != nil {
 		return err
@@ -271,27 +271,27 @@ func (m *Module) deriveReverse() error {
 	if len(m.rev.chains) > 0 || len(m.main.chains) == 0 {
 		return nil
 	}
-	path := make([]string, 0, m.order+1)
-	var walk func(nd *Node)
-	walk = func(nd *Node) {
-		childSum := 0
-		for w, ch := range nd.Children {
-			childSum += ch.Count
-			path = append(path, w)
-			walk(ch)
+	path := make([]uint32, 0, m.order+1)
+	var walk func(nd *cnode)
+	walk = func(nd *cnode) {
+		var childSum int32
+		for _, k := range nd.kids {
+			childSum += k.node.count
+			path = append(path, k.word)
+			walk(k.node)
 			path = path[:len(path)-1]
 		}
-		if excess := nd.Count - childSum; excess > 0 {
+		if excess := nd.count - childSum; excess > 0 {
 			insertReversed(m.rev.chains, path, excess)
 		}
 	}
-	for w, nd := range m.main.chains {
-		path = append(path[:0], w)
+	for id, nd := range m.main.chains {
+		path = append(path[:0], id)
 		walk(nd)
 	}
 	batch := make(map[string]any, len(m.rev.chains))
-	for w, nd := range m.rev.chains {
-		batch[m.storeKey(m.rev)+":"+w] = nd
+	for id, nd := range m.rev.chains {
+		batch[m.storeKey(m.rev)+":"+wordTab.str(id)] = fromCompact(nd)
 	}
 	if err := m.ctx.Store.PutMany(m.Name(), batch); err != nil {
 		return fmt.Errorf("markov: persist derived reverse dictionary: %w", err)
@@ -301,25 +301,19 @@ func (m *Module) deriveReverse() error {
 }
 
 // insertReversed adds one window, reversed, with the given count.
-func insertReversed(chains map[string]*Node, path []string, count int) {
-	var nd *Node
+func insertReversed(chains map[uint32]*cnode, path []uint32, count int32) {
+	var nd *cnode
 	for i := len(path) - 1; i >= 0; i-- {
-		w := path[i]
+		id := path[i]
 		if i == len(path)-1 {
-			if chains[w] == nil {
-				chains[w] = &Node{}
+			if chains[id] == nil {
+				chains[id] = &cnode{}
 			}
-			nd = chains[w]
+			nd = chains[id]
 		} else {
-			if nd.Children == nil {
-				nd.Children = make(map[string]*Node)
-			}
-			if nd.Children[w] == nil {
-				nd.Children[w] = &Node{}
-			}
-			nd = nd.Children[w]
+			nd = nd.ensureChild(id)
 		}
-		nd.Count += count
+		nd.count += count
 	}
 }
 
@@ -329,13 +323,7 @@ func insertReversed(chains map[string]*Node, path []string, count int) {
 func (m *Module) addReversed(msg string) {
 	tokens := lineTokens(msg)
 	slices.Reverse(tokens)
-	before := len(m.rev.chains)
-	for _, w := range learnTokens(m.rev.chains, m.order, tokens) {
-		m.markDirty(m.rev, w)
-	}
-	if len(m.rev.chains) != before {
-		m.rev.rebuildKeys()
-	}
+	m.learnTokens(m.rev, tokens)
 }
 
 func (m *Module) migrateLegacyBlob(all map[string]json.RawMessage) error {
@@ -347,9 +335,9 @@ func (m *Module) migrateLegacyBlob(all map[string]json.RawMessage) error {
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return fmt.Errorf("markov: parse legacy dictionary: %w", err)
 	}
-	m.main.chains = legacy
 	batch := make(map[string]any, len(legacy))
 	for w, nd := range legacy {
+		m.main.chains[wordTab.id(w)] = toCompact(nd)
 		batch[m.storeKey(m.main)+":"+w] = nd
 	}
 	if err := m.ctx.Store.PutMany(m.Name(), batch); err != nil {
@@ -371,9 +359,9 @@ func (m *Module) migrateLegacyBlob(all map[string]json.RawMessage) error {
 // markDirty queues the word's subtree for the next saver flush. The
 // node pointer is stable (words are never deleted), so the flush
 // serializes whatever the counts are by then.
-func (m *Module) markDirty(d *dict, w string) {
-	nd := d.chains[w]
-	m.ctx.Saver.Mark(m.Name(), m.storeKey(d)+":"+w, func() any { return nd })
+func (m *Module) markDirty(d *dict, id uint32) {
+	nd := d.chains[id]
+	m.ctx.Saver.Mark(m.Name(), m.storeKey(d)+":"+wordTab.str(id), func() any { return fromCompact(nd) })
 }
 
 func (m *Module) cbTalk(d *cmd.Data) bool {
@@ -462,36 +450,41 @@ func lineTokens(msg string) []string {
 	return append(words, tokEnd)
 }
 
-// LearnLine folds one chat line into chains: sanitized words wrapped
-// in sentence sentinels, windows of order+1, per-level counts. Returns
-// the top-level words touched (the module marks those dirty; offline
-// imports like tools/bvsimport ignore them). Exported so the bootstrap
-// tool learns EXACTLY like the live module.
+// LearnLine folds one chat line into storage-shaped chains: sanitized
+// words wrapped in sentence sentinels, windows of order+1, per-level
+// counts. Returns the top-level words touched. Exported so the
+// bootstrap tool (tools/bvsimport) learns EXACTLY like the live module;
+// the module itself learns into the compact representation through the
+// same windows().
 func LearnLine(chains map[string]*Node, order int, msg string) (touched []string) {
-	return learnTokens(chains, order, lineTokens(msg))
+	windows(order, lineTokens(msg), func(win []string) {
+		touched = append(touched, addWords(chains, order, win))
+	})
+	return touched
 }
 
-// learnTokens windows an already-tokenized sequence into chains.
-func learnTokens(chains map[string]*Node, order int, words []string) (touched []string) {
-	if len(words) == 0 {
-		return nil
+// windows slides the learn windows over a token sequence, handing each
+// (up to) order+1-gram to insert. The slice is reused between calls:
+// inserters must not retain it.
+func windows(order int, tokens []string, insert func(window []string)) {
+	if len(tokens) == 0 {
+		return
 	}
 	var prev []string
-	for len(prev) < order && len(words) > 0 {
-		prev = append(prev, words[0])
-		words = words[1:]
+	for len(prev) < order && len(tokens) > 0 {
+		prev = append(prev, tokens[0])
+		tokens = tokens[1:]
 	}
-	if len(words) == 0 {
-		touched = append(touched, addWords(chains, order, prev))
-	} else {
-		for len(words) > 0 {
-			prev = append(prev, words[0])
-			words = words[1:]
-			touched = append(touched, addWords(chains, order, prev))
-			prev = prev[1:]
-		}
+	if len(tokens) == 0 {
+		insert(prev)
+		return
 	}
-	return touched
+	for len(tokens) > 0 {
+		prev = append(prev, tokens[0])
+		tokens = tokens[1:]
+		insert(prev)
+		prev = prev[1:]
+	}
 }
 
 // addWords bumps the chain counts along one window of order+1 words
@@ -522,10 +515,27 @@ func addWords(chains map[string]*Node, order int, words []string) string {
 // addLine learns one line into a dict, marking touched words dirty and
 // keeping the top-word cache current.
 func (m *Module) addLine(d *dict, msg string) {
+	m.learnTokens(d, lineTokens(msg))
+}
+
+// learnTokens is the compact-side twin of LearnLine: same windows, the
+// counts land in cnodes.
+func (m *Module) learnTokens(d *dict, tokens []string) {
 	before := len(d.chains)
-	for _, w := range LearnLine(d.chains, m.order, msg) {
-		m.markDirty(d, w)
-	}
+	windows(m.order, tokens, func(win []string) {
+		id := wordTab.id(win[0])
+		nd := d.chains[id]
+		if nd == nil {
+			nd = &cnode{}
+			d.chains[id] = nd
+		}
+		nd.count++
+		for _, w := range win[1:] {
+			nd = nd.ensureChild(wordTab.id(w))
+			nd.count++
+		}
+		m.markDirty(d, id)
+	})
 	if len(d.chains) != before {
 		d.rebuildKeys()
 	}
@@ -586,8 +596,10 @@ func (m *Module) talkMessage(seed string) string {
 	for w := range strings.FieldsSeq(seed) {
 		words = append(words, sanitizeWord(w)...)
 	}
-	if len(words) == 1 && m.rev != nil && m.rev.chains[words[0]] != nil {
-		return m.middleOut(words[0])
+	if len(words) == 1 && m.rev != nil {
+		if id, ok := wordTab.lookup(words[0]); ok && m.rev.chains[id] != nil {
+			return m.middleOut(words[0])
+		}
 	}
 	return m.randomMessageFrom(m.main, words)
 }
@@ -605,7 +617,7 @@ func (m *Module) randomMessage(d *dict, seed string) string {
 // dictionary has one, so sentences begin like real sentences instead
 // of at a uniformly random word.
 func (m *Module) randomMessageFrom(d *dict, words []string) string {
-	if len(words) == 0 && d.chains[tokStart] != nil {
+	if len(words) == 0 && d.chains[tokStartID] != nil {
 		words = []string{tokStart}
 	}
 	looper := 0
@@ -693,7 +705,10 @@ func (m *Module) randomWord(d *dict, words []string) string {
 	if len(last) > m.order {
 		last = last[len(last)-m.order:]
 	}
-	if len(last) == 0 || d.chains[last[len(last)-1]] == nil {
+	if len(last) == 0 {
+		return m.randomChainWord(d)
+	}
+	if id, ok := wordTab.lookup(last[len(last)-1]); !ok || d.chains[id] == nil {
 		return m.randomChainWord(d)
 	}
 	if nd := m.findMaxOrderChain(d, last); nd != nil {
@@ -716,15 +731,20 @@ func (m *Module) randomChainWord(d *dict) string {
 // findMaxOrderChain walks the longest existing chain for the last
 // words, dropping an order on a miss or on the perl's variety roll
 // (p = (1/(children+1))^2 / 4, the +1 being its __count key).
-func (m *Module) findMaxOrderChain(d *dict, last []string) *Node {
+func (m *Module) findMaxOrderChain(d *dict, last []string) *cnode {
 	for order := min(m.order, len(last)); order > 0; order-- {
-		var nd *Node
+		var nd *cnode
 		ok := true
 		for i, w := range last[len(last)-order:] {
+			id, known := wordTab.lookup(w)
+			if !known {
+				ok = false
+				break
+			}
 			if i == 0 {
-				nd = d.chains[w]
+				nd = d.chains[id]
 			} else {
-				nd = nd.Children[w]
+				nd = nd.child(id)
 			}
 			if nd == nil {
 				ok = false
@@ -734,7 +754,7 @@ func (m *Module) findMaxOrderChain(d *dict, last []string) *Node {
 		if !ok {
 			continue
 		}
-		nkeys := len(nd.Children) + 1
+		nkeys := len(nd.kids) + 1
 		p := 0.25 / float64(nkeys) / float64(nkeys)
 		if m.rand() < p {
 			continue // random fail, retry with lower order
@@ -744,26 +764,24 @@ func (m *Module) findMaxOrderChain(d *dict, last []string) *Node {
 	return nil
 }
 
-// weightedPick draws a child weighted by its count.
-func (m *Module) weightedPick(nd *Node) string {
-	if len(nd.Children) == 0 {
+// weightedPick draws a child weighted by its count. Alphabetical word
+// order, like the map-keys sort it replaces: the rand-to-child mapping
+// must not depend on the representation.
+func (m *Module) weightedPick(nd *cnode) string {
+	if len(nd.kids) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(nd.Children))
-	for w := range nd.Children {
-		keys = append(keys, w)
-	}
-	slices.Sort(keys)
+	kids := nd.sortedKids()
 	total := 0
-	cums := make([]int, len(keys))
-	for i, w := range keys {
-		total += nd.Children[w].Count
+	cums := make([]int, len(kids))
+	for i, k := range kids {
+		total += int(k.node.count)
 		cums[i] = total
 	}
 	r := int(m.rand() * float64(total))
 	for i, c := range cums {
 		if r <= c {
-			return keys[i]
+			return wordTab.str(kids[i].word)
 		}
 	}
 	return ""
