@@ -150,33 +150,69 @@ func envBool(key string, fallback bool) bool {
 	return true
 }
 
-// standalone runs a single-process bot (core connects to IRC directly).
-// The server address has no built-in default: set -addr or
-// BOTJE_IRC_ADDR. Nick/channel defaults are the safe test setup
-// (Meretrix in #testing), never live channels.
-func standalone(args []string) int {
-	fs := flag.NewFlagSet("standalone", flag.ExitOnError)
+// coreFlags registers the flags every core-running mode (standalone,
+// core) shares and returns a collector that builds the coreOpts after
+// Parse. Nick/channel defaults are the safe test setup (Meretrix in
+// #testing), never live channels.
+func coreFlags(fs *flag.FlagSet) func() coreOpts {
 	var (
 		network  = fs.String("network", envOr("BOTJE_NETWORK", "junerules"), "irc network name")
-		addr     = fs.String("addr", envOr("BOTJE_IRC_ADDR", ""), "server host:port (or BOTJE_IRC_ADDR)")
-		useTLS   = fs.Bool("tls", envBool("BOTJE_IRC_TLS", true), "connect with TLS")
 		nick     = fs.String("nick", envOr("BOTJE_NICK", "Meretrix"), "bot nick")
 		channels = fs.String("channels", envOr("BOTJE_CHANNELS", "#testing"), "comma-separated channels to join")
 		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
-		cert     = fs.String("tls-cert", envOr("BOTJE_TLS_CERT", ""), "TLS client cert for oper certfp (or BOTJE_TLS_CERT)")
-		key      = fs.String("tls-key", envOr("BOTJE_TLS_KEY", ""), "TLS client key (or BOTJE_TLS_KEY)")
 		metrics  = fs.String("metrics", envOr("BOTJE_METRICS", ""), "prometheus listen addr, e.g. 127.0.0.1:9095 (or BOTJE_METRICS)")
 	)
-	fs.Parse(args)
-	if *addr == "" {
+	return func() coreOpts {
+		return coreOpts{
+			network: *network, nick: *nick, channels: *channels,
+			admin: *adminOn, metrics: *metrics,
+		}
+	}
+}
+
+// ircConn is the dial side collected by ircFlags.
+type ircConn struct {
+	addr      string
+	tls       bool
+	cert, key string
+}
+
+// ircFlags registers the IRC dial flags shared by the modes that own
+// the socket (standalone, keeper) and returns a collector.
+func ircFlags(fs *flag.FlagSet) func() ircConn {
+	var (
+		addr   = fs.String("addr", envOr("BOTJE_IRC_ADDR", ""), "server host:port (or BOTJE_IRC_ADDR)")
+		useTLS = fs.Bool("tls", envBool("BOTJE_IRC_TLS", true), "connect with TLS")
+		cert   = fs.String("tls-cert", envOr("BOTJE_TLS_CERT", ""), "TLS client cert for oper certfp (or BOTJE_TLS_CERT)")
+		key    = fs.String("tls-key", envOr("BOTJE_TLS_KEY", ""), "TLS client key (or BOTJE_TLS_KEY)")
+	)
+	return func() ircConn {
+		return ircConn{addr: *addr, tls: *useTLS, cert: *cert, key: *key}
+	}
+}
+
+// requireAddr enforces the no-in-code-server-default rule (the repo is
+// public): an empty address refuses with a pointer to the env var.
+func requireAddr(addr string) bool {
+	if addr == "" {
 		fmt.Fprintln(os.Stderr, "no IRC server: set -addr or BOTJE_IRC_ADDR")
+		return false
+	}
+	return true
+}
+
+// standalone runs a single-process bot (core connects to IRC directly).
+func standalone(args []string) int {
+	fs := flag.NewFlagSet("standalone", flag.ExitOnError)
+	getOpts, getIRC := coreFlags(fs), ircFlags(fs)
+	fs.Parse(args)
+	irc := getIRC()
+	if !requireAddr(irc.addr) {
 		return 2
 	}
-	return runCore(coreOpts{
-		network: *network, addr: *addr, tls: *useTLS, nick: *nick,
-		channels: *channels, admin: *adminOn, cert: *cert, key: *key,
-		metrics: *metrics,
-	})
+	o := getOpts()
+	o.addr, o.tls, o.cert, o.key = irc.addr, irc.tls, irc.cert, irc.key
+	return runCore(o)
 }
 
 // coreMode runs just the core, connecting to a keeper's unix socket
@@ -184,41 +220,29 @@ func standalone(args []string) int {
 // core restarts freely without dropping the IRC session.
 func coreMode(args []string) int {
 	fs := flag.NewFlagSet("core", flag.ExitOnError)
-	var (
-		network  = fs.String("network", envOr("BOTJE_NETWORK", "junerules"), "irc network name")
-		socket   = fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "keeper unix socket")
-		nick     = fs.String("nick", envOr("BOTJE_NICK", "Meretrix"), "bot nick")
-		channels = fs.String("channels", envOr("BOTJE_CHANNELS", "#testing"), "comma-separated channels to join")
-		adminOn  = fs.String("admin", envOr("BOTJE_ADMIN", "127.0.0.1:1924"), "telnet admin address, empty to disable")
-		metrics  = fs.String("metrics", envOr("BOTJE_METRICS", ""), "prometheus listen addr, e.g. 127.0.0.1:9095 (or BOTJE_METRICS)")
-	)
+	getOpts := coreFlags(fs)
+	socket := fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "keeper unix socket")
 	fs.Parse(args)
-	return runCore(coreOpts{
-		network: *network, socket: *socket, nick: *nick,
-		channels: *channels, admin: *adminOn, metrics: *metrics,
-	})
+	o := getOpts()
+	o.socket = *socket
+	return runCore(o)
 }
 
 // keeperMode runs just the connection keeper.
 func keeperMode(args []string) int {
 	fs := flag.NewFlagSet("keeper", flag.ExitOnError)
-	var (
-		addr   = fs.String("addr", envOr("BOTJE_IRC_ADDR", ""), "server host:port (or BOTJE_IRC_ADDR)")
-		useTLS = fs.Bool("tls", envBool("BOTJE_IRC_TLS", true), "connect with TLS")
-		socket = fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "unix socket for the core")
-		cert   = fs.String("tls-cert", envOr("BOTJE_TLS_CERT", ""), "TLS client cert for oper certfp (or BOTJE_TLS_CERT)")
-		key    = fs.String("tls-key", envOr("BOTJE_TLS_KEY", ""), "TLS client key (or BOTJE_TLS_KEY)")
-	)
+	getIRC := ircFlags(fs)
+	socket := fs.String("socket", envOr("BOTJE_SOCKET", "/run/keeper/keeper.sock"), "unix socket for the core")
 	fs.Parse(args)
-	if *addr == "" {
-		fmt.Fprintln(os.Stderr, "no IRC server: set -addr or BOTJE_IRC_ADDR")
+	irc := getIRC()
+	if !requireAddr(irc.addr) {
 		return 2
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := keeper.Run(ctx, keeper.Config{Addr: *addr, TLS: *useTLS, Socket: *socket,
-		CertFile: *cert, KeyFile: *key}); err != nil {
+	if err := keeper.Run(ctx, keeper.Config{Addr: irc.addr, TLS: irc.tls, Socket: *socket,
+		CertFile: irc.cert, KeyFile: irc.key}); err != nil {
 		if ctx.Err() == nil {
 			slog.Error("keeper", "err", err)
 			return 1
