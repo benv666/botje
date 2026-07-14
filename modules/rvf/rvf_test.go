@@ -24,7 +24,8 @@ type fixture struct {
 	clk   time.Time
 	saver *storage.Saver
 	sent  []string
-	rolls []int // scripted Rand results, consumed in order
+	raw   []string // SendRaw lines (topic assertions)
+	rolls []int    // scripted Rand results, consumed in order
 }
 
 func newFixture(t *testing.T, store storage.Store) *fixture {
@@ -32,6 +33,8 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 	f := &fixture{clk: time.Date(2026, 7, 14, 20, 0, 0, 0, time.Local)}
 	f.b = bus.New()
 	f.b.RegisterEvent("IRC_PRIVMSG")
+	f.b.RegisterEvent("IRC_JOIN")
+	f.b.RegisterEvent("IRC_TOPIC")
 	f.b.RegisterEvent("COMMAND")
 	f.cmds = cmd.New()
 	f.cf = conf.New()
@@ -55,6 +58,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 		Bus: f.b, Cmd: f.cmds, Conf: f.cf, Store: store, Sched: f.sch,
 		Saver: f.saver, Pager: pg,
 		Privmsg: func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) },
+		SendRaw: func(line string) { f.raw = append(f.raw, line) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +139,7 @@ func TestFullChannelGame(t *testing.T) {
 	if out := f.all(); !strings.Contains(out, "4x E") {
 		t.Fatalf("vowel reply: %q", out)
 	}
+	f.rolls = []int{0} // art variant
 	f.msg("BenV", "#testing", "los op: wie het laatst lacht, lacht het best")
 	out = f.all()
 	if !strings.Contains(out, "JUIST") || !strings.Contains(out, "fl. 6750") {
@@ -199,6 +204,7 @@ func TestEnglishChannel(t *testing.T) {
 	if out := f.all(); !strings.Contains(out, "3x R") || !strings.Contains(out, "$3000") {
 		t.Fatalf("english hit: %q", out)
 	}
+	f.rolls = []int{2} // art variant
 	f.msg("BenV", "#wheeloffortune", "solve the early bird catches the worm")
 	if out := f.all(); !strings.Contains(out, "CORRECT") {
 		t.Fatalf("english solve: %q", out)
@@ -342,6 +348,7 @@ func TestGameSurvivesRestart(t *testing.T) {
 		t.Fatalf("restored state: %+v", g.Current())
 	}
 	// play on through the restored module
+	f2.rolls = []int{0} // art variant
 	f2.msg("BenV", "#testing", "los op: wie het laatst lacht lacht het best")
 	if out := f2.all(); !strings.Contains(out, "JUIST") {
 		t.Fatalf("restored game not playable: %q", out)
@@ -398,6 +405,7 @@ func TestHiscoreOrdering(t *testing.T) {
 	f.rolls = []int{0} // wheel index 0 = fl. 50
 	f.msg("Lotjuh", "#testing", "draai")
 	f.msg("Lotjuh", "#testing", "t")
+	f.rolls = []int{0} // art variant
 	f.msg("Lotjuh", "#testing", "los op: wie het laatst lacht lacht het best")
 	f.take()
 
@@ -407,6 +415,7 @@ func TestHiscoreOrdering(t *testing.T) {
 	f.rolls = []int{20}
 	f.msg("BenV", "#testing", "draai")
 	f.msg("BenV", "#testing", "t")
+	f.rolls = []int{3} // art variant
 	f.msg("BenV", "#testing", "los op: wie het laatst lacht lacht het best")
 	out := f.all()
 	if !strings.Contains(out, "Plek 1") {
@@ -425,8 +434,9 @@ func TestSpinFirstHint(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.startGame("#testing", "BenV")
 	f.take()
+	f.rolls = []int{1} // fun-line variant
 	f.msg("BenV", "#testing", "t")
-	if out := f.all(); !strings.Contains(out, "Eerst") {
+	if out := f.all(); !strings.Contains(out, "draai") {
 		t.Fatalf("letter before spin: %q", out)
 	}
 }
