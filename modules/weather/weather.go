@@ -812,6 +812,18 @@ func warnColor(level string) string {
 	}
 }
 
+// warnRank orders levels by severity.
+func warnRank(level string) int {
+	switch level {
+	case "rood":
+		return 3
+	case "oranje":
+		return 2
+	default:
+		return 1
+	}
+}
+
 func (w warning) String() string {
 	return fmt.Sprintf("%scode %s{/}: %s (%s)", warnColor(w.Level), w.Level, w.Event, w.Area)
 }
@@ -895,12 +907,20 @@ func (m *Module) warnSuffix(g geo) string {
 	if g.Area == "" {
 		return ""
 	}
-	for _, w := range m.warnings {
-		if strings.EqualFold(w.Area, g.Area) {
-			return " | " + w.String()
+	// a province can hold several warnings at once (geel mist next to
+	// rood storm): the most severe one wins the one-liner, !weeralarm
+	// has the full list
+	var best *warning
+	for i, w := range m.warnings {
+		if strings.EqualFold(w.Area, g.Area) &&
+			(best == nil || warnRank(w.Level) > warnRank(best.Level)) {
+			best = &m.warnings[i]
 		}
 	}
-	return ""
+	if best == nil {
+		return ""
+	}
+	return " | " + best.String()
 }
 
 // cbWeeralarm lists every active warning.

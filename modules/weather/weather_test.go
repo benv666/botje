@@ -9,6 +9,7 @@ import (
 	"go-botje/internal/bus"
 	"go-botje/internal/conf"
 	"go-botje/internal/fetch"
+	"go-botje/internal/format"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/irc/pager"
 	"go-botje/internal/module"
@@ -286,6 +287,57 @@ func TestWarningInWeerAndList(t *testing.T) {
 	if !strings.Contains(all, "Noord-Holland") || !strings.Contains(all, "Limburg") ||
 		!strings.Contains(all, "code geel") || !strings.Contains(all, "code oranje") {
 		t.Fatalf("weeralarm list = %q", got)
+	}
+}
+
+// All severities map to their code and color on the wire: Moderate =
+// geel (mIRC 08), Severe = oranje (07), Extreme = rood (04). Minor is
+// not a code and is dropped.
+func TestWarningSeverityLevelsAndColors(t *testing.T) {
+	feed := `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+ <entry><cap:areaDesc>Groningen</cap:areaDesc><cap:event>fog</cap:event><cap:severity>Minor</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-min</cap:identifier></entry>
+ <entry><cap:areaDesc>Noord-Holland</cap:areaDesc><cap:event>Moderate Wind</cap:event><cap:severity>Moderate</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-mod</cap:identifier></entry>
+ <entry><cap:areaDesc>Limburg</cap:areaDesc><cap:event>Severe Thunderstorm</cap:event><cap:severity>Severe</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-sev</cap:identifier></entry>
+ <entry><cap:areaDesc>Zeeland</cap:areaDesc><cap:event>Extreme Wind</cap:event><cap:severity>Extreme</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-ext</cap:identifier></entry>
+</feed>`
+	ws := parseWarnings([]byte(feed), time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC))
+	if len(ws) != 3 {
+		t.Fatalf("want 3 warnings (Minor dropped), got %d: %v", len(ws), ws)
+	}
+	wire := map[string]string{ // level -> mIRC color code
+		"geel": "\x0308", "oranje": "\x0307", "rood": "\x0304",
+	}
+	for i, want := range []string{"geel", "oranje", "rood"} {
+		if ws[i].Level != want {
+			t.Fatalf("warning %d level = %q, want %q", i, ws[i].Level, want)
+		}
+		irc := format.ToIRC(ws[i].String())
+		if !strings.Contains(irc, wire[want]+"code "+want) {
+			t.Fatalf("code %s not colored %q on the wire: %q", want, wire[want], irc)
+		}
+	}
+}
+
+// When a province has more than one active warning, !weer shows the
+// most severe one, not whichever the feed lists first.
+func TestWeerShowsMostSevereWarning(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.body[warnURL] = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+ <entry><cap:areaDesc>Noord-Holland</cap:areaDesc><cap:event>fog</cap:event><cap:severity>Moderate</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-nh-mist</cap:identifier></entry>
+ <entry><cap:areaDesc>Noord-Holland</cap:areaDesc><cap:event>Extreme Wind</cap:event><cap:severity>Extreme</cap:severity><cap:expires>2126-07-14T14:39:29+00:00</cap:expires><cap:identifier>id-nh-storm</cap:identifier></entry>
+</feed>`
+	f.m.warnAt = time.Time{} // drop the cache Load warmed with the default fixture
+	f.msg("BenV", "#testing", "!weeralarm") // refill via withWarnings
+	f.take()
+	f.msg("BenV", "#testing", "!weer") // Hauwert = Noord-Holland
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "code rood") {
+		t.Fatalf("weer did not show the most severe warning: %q", got)
+	}
+	if strings.Contains(got[0], "code geel") {
+		t.Fatalf("weer shows the milder warning too: %q", got)
 	}
 }
 
