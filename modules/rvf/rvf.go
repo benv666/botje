@@ -25,6 +25,7 @@ import (
 
 	"go-botje/internal/admin"
 	"go-botje/internal/bus"
+	"go-botje/internal/format"
 	"go-botje/internal/irc/cmd"
 	"go-botje/internal/module"
 )
@@ -78,16 +79,21 @@ func (m *Module) Load(ctx *module.Context) error {
 	ctx.Conf.CreateInt("rvf_vowel_cost", 250)
 	ctx.Conf.CreateInt("rvf_turn_seconds", 90)
 	ctx.Conf.CreateInt("rvf_max_timeouts", 3)
+	ctx.Conf.CreateString("rvf_channels_nl", "#radvanfortuin")
 	ctx.Conf.CreateString("rvf_channels_en", "#wheeloffortune")
 
 	ctx.Cmd.Register(m.Name(), "start", m.cbStart)
 	ctx.Cmd.Register(m.Name(), "stop", m.cbStop)
 	ctx.Cmd.Register(m.Name(), "top10", m.cbTop10)
-	if err := ctx.Bus.RegisterHook(m.Name(), "IRC_PRIVMSG", m.onPrivmsg); err != nil {
-		return err
-	}
-	if err := ctx.Bus.RegisterHook(m.Name(), "COMMAND", m.adminSpec); err != nil {
-		return err
+	for event, hook := range map[string]bus.Handler{
+		"IRC_PRIVMSG": m.onPrivmsg,
+		"IRC_JOIN":    m.onJoin,
+		"IRC_TOPIC":   m.onTopic,
+		"COMMAND":     m.adminSpec,
+	} {
+		if err := ctx.Bus.RegisterHook(m.Name(), event, hook); err != nil {
+			return err
+		}
 	}
 
 	ctx.Store.Get(m.Name(), "games", &m.games)
@@ -124,16 +130,61 @@ func gameKey(server, channel string) string {
 	return server + " " + strings.ToLower(channel)
 }
 
+func splitChans(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == ' ' || r == ',' })
+}
+
 // langFor picks the language: channels in conf rvf_channels_en play in
 // english, everything else (incl. queries) in dutch.
 func (m *Module) langFor(channel string) string {
-	for _, ch := range strings.FieldsFunc(m.ctx.Conf.String("rvf_channels_en"),
-		func(r rune) bool { return r == ' ' || r == ',' }) {
+	for _, ch := range splitChans(m.ctx.Conf.String("rvf_channels_en")) {
 		if strings.EqualFold(ch, channel) {
 			return "en"
 		}
 	}
 	return "nl"
+}
+
+// ownedChannel reports whether this is one of the dedicated game
+// channels (conf rvf_channels_nl + rvf_channels_en) whose topic the
+// bot keeps.
+func (m *Module) ownedChannel(channel string) bool {
+	for _, setting := range []string{"rvf_channels_nl", "rvf_channels_en"} {
+		for _, ch := range splitChans(m.ctx.Conf.String(setting)) {
+			if strings.EqualFold(ch, channel) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// setTopic asserts the help topic. SendRaw because there is no module
+// topic API; the raw path still colorizes the {x} tags.
+func (m *Module) setTopic(channel string) {
+	m.ctx.SendRaw("TOPIC " + channel + " :" + langs[m.langFor(channel)].topic)
+}
+
+// onJoin sets the topic when the bot enters an owned channel (also
+// covers a stale topic found at join: the set is unconditional).
+func (m *Module) onJoin(ev *bus.Event) (bus.Handled, any) {
+	if ev.SenderMe && m.ownedChannel(ev.Channel) {
+		m.setTopic(ev.Channel)
+	}
+	return bus.None, nil
+}
+
+// onTopic puts the help topic back when someone changes it. Our own
+// change echoes back with SenderMe (no loop), and the comparison is
+// against the mIRC-colored form: that is what the wire carries.
+func (m *Module) onTopic(ev *bus.Event) (bus.Handled, any) {
+	if ev.SenderMe || !m.ownedChannel(ev.Channel) {
+		return bus.None, nil
+	}
+	if got, _ := ev.Extra["topic"].(string); got != format.ToIRC(langs[m.langFor(ev.Channel)].topic) {
+		m.setTopic(ev.Channel)
+	}
+	return bus.None, nil
 }
 
 // pool is the puzzle pool for lang: embedded corpus plus extras.
@@ -178,9 +229,17 @@ func (m *Module) cbStart(d *cmd.Data) bool {
 	}
 	var nicks []string
 	for _, n := range strings.FieldsFunc(d.Data, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if len(n) > 30 {
+			m.ctx.Privmsg(ev.Channel, t.sillyNick)
+			return true
+		}
 		if !slices.ContainsFunc(nicks, func(have string) bool { return strings.EqualFold(have, n) }) {
 			nicks = append(nicks, n)
 		}
+	}
+	if len(nicks) > 8 {
+		m.ctx.Privmsg(ev.Channel, t.tooMany)
+		return true
 	}
 	if len(nicks) == 0 {
 		nicks = []string{ev.Sender.Nick}
@@ -339,6 +398,13 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 	if g.State == StateLetter {
 		lm := letterRe.FindStringSubmatch(msg)
 		if lm == nil {
+			// a consonant is owed; game-shaped attempts at anything
+			// else get ribbed, plain chatter flows on
+			if t.spinRe.MatchString(msg) || t.buyRe.MatchString(msg) ||
+				t.solveRe.MatchString(msg) || t.passRe.MatchString(msg) {
+				reply(m.pick(t.wrongAction))
+				return true
+			}
 			return false
 		}
 		letter := strings.ToUpper(lm[1])
@@ -412,7 +478,8 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 		attempt := t.solveRe.FindStringSubmatch(msg)[1]
 		winner := g.Current()
 		if g.Solve(attempt) {
-			out := fmt.Sprintf(t.solveWin, winner.Nick, t.money(winner.Money), g.Puzzle)
+			out := victory(t, m.rollN, winner.Nick) + "\n" +
+				fmt.Sprintf(t.solveWin, winner.Nick, t.money(winner.Money), g.Puzzle)
 			channel := channelOf(key)
 			if pos := m.recordScore(Score{
 				Nick: winner.Nick, Channel: channel, Lang: g.Lang,
@@ -435,10 +502,15 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 		return true
 
 	case letterRe.MatchString(msg):
-		reply(t.spinFirst)
+		reply(m.pick(t.spinFirsts))
 		return true
 	}
 	return false
+}
+
+// pick draws a random variant from a fun-line list.
+func (m *Module) pick(list []string) string {
+	return list[m.rollN(len(list))]
 }
 
 // moveDone persists and resets the turn clock after any valid move.

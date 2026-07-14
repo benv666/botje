@@ -247,11 +247,19 @@ timeouts abort the game and reveal the answer. The solver banks their
 round money and enters the persistent `!top10` (nick/channel/score).
 
 Channels listed in `conf rvf_channels_en` (default `#wheeloffortune`)
-play in english with dollar amounts; everywhere else is dutch. The
-puzzle corpus ships in the binary (dutch spreekwoorden, uitdrukkingen
-and show categories; english phrases and Wheel of Fortune categories)
-and grows over telnet: `rvf add <nl|en> <Category>: <puzzle>`,
-`rvf del`, `rvf list` (su). Games survive restarts.
+play in english with dollar amounts; everywhere else is dutch. On its
+dedicated game channels (`conf rvf_channels_nl`, default
+`#radvanfortuin`, plus the english list) the bot owns the topic: it
+sets a help topic on join and puts it back whenever someone changes it.
+Telnet-`join` the bot there to open shop.
+
+The puzzle corpus ships in the binary (dutch spreekwoorden,
+uitdrukkingen and show categories; english phrases and Wheel of Fortune
+categories) and grows over telnet: `rvf add <nl|en> <Category>:
+<puzzle>`, `rvf del`, `rvf list` (su). Games survive restarts. Winners
+get random colorized victory art; wrong-order moves get ribbed ("Nee,
+je moet eerst draaien!") instead of silence, and `!start` refuses
+novelty nicks and more players than the studio has chairs.
 
 ## Data migration (Perl Storable -> go-botje)
 
