@@ -167,7 +167,7 @@ Import > paste the JSON, pick your prometheus datasource).
 | ego | `!ego <nick>`, auto-report every 200 self-references |
 | guard | spam gatekeeper: telnet `guard on\|off\|status`. Learns resident user@hosts while off; while on, freezes the trust set and enforces against non-residents (cross-channel duplicate lines, mass-join, line rate) with an oper kickban + timed GLINE. Newcomers clear themselves with `/msg <bot> auth <password>` (`conf guard_auth_password`). Thresholds are `conf guard_*` (dup_channels, join_channels/window, line_rate/window, gline_seconds) |
 | lastseen | `!last <nick>` |
-| markov | `!talk [seed]`, any unknown `!command`, `talk` in query; learns all channel chatter; idle talker via `markov_idle_talk*` settings |
+| markov | `!talk [seed]`, `!talklike <nick> [seed]` (per-nick dictionaries, bootstrapped from years of channel logs via tools/bvsimport), any unknown `!command`, `talk` in query; learns all channel chatter; idle talker via `markov_idle_talk*` settings |
 | pacman | messages starting with 2+ dots (exactly 2: 70% ignored) |
 | pizza | `!pizza`/`!timer <timespec> [r{...}] [msg]`, `when <id>`, `clear [id]`, `start`/`stop` stopwatch; timespec: `18:30`, `24-12-2026`, `+2h30m`, weekdays, repeats `r{1d}` (min 30 min) |
 | rss | `!rss add <url> [refresh=N] [#chan\|query] [tag=X] [grep="re"]`, `del`, `list [url]`, `last <key>`, `refresh <key>`, `!rss <id>` / bare `!<id>` recalls (repeat to page) |
