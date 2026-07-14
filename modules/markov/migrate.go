@@ -1,24 +1,24 @@
-package main
+package markov
 
 import (
 	"fmt"
 	"strings"
-
-	"go-botje/modules/markov"
 )
 
-// markovStats is the verification summary for a dictionary migration.
-type markovStats struct {
+// MigrateStats reports what a Perl import contained.
+type MigrateStats struct {
 	Dictionaries []string
 	TopWords     int
 	TotalCount   int64
 }
 
-// markovFromPerl maps the Perl chains (word -> {__count, childword ->
-// ...}) onto markov.Node tries, one per dictionary_* key in the dump.
-func markovFromPerl(dump map[string]any) (map[string]map[string]*markov.Node, markovStats, error) {
-	out := make(map[string]map[string]*markov.Node)
-	var stats markovStats
+// MigrateFromPerl maps the Perl chains (word -> {__count, childword ->
+// ...}) onto Node tries, one per dictionary_* key in the dump. The
+// caller stores each trie under its dictionary key in namespace
+// "markov" (the module splits legacy blobs into per-word rows at Load).
+func MigrateFromPerl(dump map[string]any) (map[string]map[string]*Node, MigrateStats, error) {
+	out := make(map[string]map[string]*Node)
+	var stats MigrateStats
 	for key, v := range dump {
 		if !strings.HasPrefix(key, "dictionary_") {
 			continue
@@ -27,7 +27,7 @@ func markovFromPerl(dump map[string]any) (map[string]map[string]*markov.Node, ma
 		if !ok {
 			return nil, stats, fmt.Errorf("markov: %s is %T", key, v)
 		}
-		chains := make(map[string]*markov.Node, len(words))
+		chains := make(map[string]*Node, len(words))
 		for word, wv := range words {
 			if strings.HasPrefix(word, "__") {
 				continue // stray bookkeeping keys at the top level
@@ -49,15 +49,15 @@ func markovFromPerl(dump map[string]any) (map[string]map[string]*markov.Node, ma
 	return out, stats, nil
 }
 
-func nodeFromPerl(v any) (*markov.Node, error) {
+func nodeFromPerl(v any) (*Node, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("node is %T", v)
 	}
-	nd := &markov.Node{}
+	nd := &Node{}
 	for k, cv := range m {
 		if k == "__count" {
-			if c, ok := toInt(cv); ok {
+			if c, ok := migInt(cv); ok {
 				nd.Count = c
 			}
 			continue
@@ -70,9 +70,24 @@ func nodeFromPerl(v any) (*markov.Node, error) {
 			return nil, err
 		}
 		if nd.Children == nil {
-			nd.Children = make(map[string]*markov.Node)
+			nd.Children = make(map[string]*Node)
 		}
 		nd.Children[k] = child
 	}
 	return nd, nil
+}
+
+// migInt handles json numbers and the strings Perl sometimes stores
+// numbers as.
+func migInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case string:
+		var i int
+		if _, err := fmt.Sscanf(n, "%d", &i); err == nil {
+			return i, true
+		}
+	}
+	return 0, false
 }

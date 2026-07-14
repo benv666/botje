@@ -16,6 +16,8 @@ import (
 
 	"go-botje/internal/storage"
 	"go-botje/modules/ego"
+	"go-botje/modules/karma"
+	"go-botje/modules/markov"
 	"go-botje/modules/rss"
 	"go-botje/modules/ticker"
 )
@@ -52,7 +54,7 @@ func run(mod, in, dsn string) error {
 	var report string
 	switch mod {
 	case "karma":
-		data, stats, err := karmaFromPerl(dump)
+		data, stats, err := karma.MigrateFromPerl(dump)
 		if err != nil {
 			return err
 		}
@@ -60,7 +62,7 @@ func run(mod, in, dsn string) error {
 		report = fmt.Sprintf("karma: %d global items, %d servers, %d channels, %d channel items",
 			stats.GlobalItems, stats.Servers, stats.Channels, stats.ChannelItems)
 	case "markov":
-		dicts, stats, err := markovFromPerl(dump)
+		dicts, stats, err := markov.MigrateFromPerl(dump)
 		if err != nil {
 			return err
 		}
