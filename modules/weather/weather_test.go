@@ -240,6 +240,40 @@ func TestForeignPlaceUsesOpenMeteo(t *testing.T) {
 	}
 }
 
+// Planet trolling (live 2026-07-15: !weer venus/pluto/jupiter answered
+// from US villages as if they were the planets, !weer wouter from a
+// Belgian hamlet): a foreign reply says where the resolved place is
+// and which source supplied the numbers.
+func TestForeignPlaceLabeled(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.body[geoURL] = geoBarcelona
+	f.msg("BenV", "#testing", "!weer barcelona")
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "{B}{b}Barcelona{/} (Catalonia, Spanje, open-meteo)") {
+		t.Fatalf("foreign weer not labeled with region/country/source: %q", got)
+	}
+}
+
+// A geo cached before the country-name field has Country but no
+// CountryName: foreign entries get re-geocoded once so the label can
+// name the country.
+func TestStaleForeignGeoCacheRefreshed(t *testing.T) {
+	store := storage.NewMemory()
+	if err := store.Put("weather", "geo barcelona", map[string]any{
+		"name": "Barcelona", "lat": 41.39, "lon": 2.16,
+		"country": "ES", "area": "Catalonia", // no country_name
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t, store)
+	f.body[geoURL] = geoBarcelona
+	f.msg("BenV", "#testing", "!weer barcelona")
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "Spanje") {
+		t.Fatalf("stale foreign cache entry not refreshed: %q", got)
+	}
+}
+
 // Same trap for rain: buienradar's raintext only covers the Benelux.
 func TestForeignRainUsesOpenMeteo(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
@@ -256,6 +290,9 @@ func TestForeignRainUsesOpenMeteo(t *testing.T) {
 	if !strings.Contains(got[0], "18:00") { // rain starts at the second point
 		t.Fatalf("foreign regen missing the rain start: %q", got[0])
 	}
+	if !strings.Contains(got[0], "open-meteo") {
+		t.Fatalf("foreign regen not source-labeled: %q", got[0])
+	}
 }
 
 // A dutch place too far from any station is still nonsense; the guard
@@ -268,6 +305,9 @@ func TestFarDutchPlaceFallsBack(t *testing.T) {
 	got := f.take()
 	if len(got) != 1 || strings.Contains(got[0], "meetstation") {
 		t.Fatalf("far dutch place still used a station: %q", got)
+	}
+	if !strings.Contains(got[0], "(open-meteo)") {
+		t.Fatalf("station-less reply not source-labeled: %q", got[0])
 	}
 }
 

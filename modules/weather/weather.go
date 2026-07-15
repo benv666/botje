@@ -67,11 +67,12 @@ type rainEntry struct {
 }
 
 type geo struct {
-	Name    string  `json:"name"`
-	Lat     float64 `json:"lat"`
-	Lon     float64 `json:"lon"`
-	Country string  `json:"country"` // ISO code, "NL" for the buienradar path
-	Area    string  `json:"area"`    // province, matched against warning areas
+	Name        string  `json:"name"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Country     string  `json:"country"` // ISO code, "NL" for the buienradar path
+	Area        string  `json:"area"`    // province, matched against warning areas
+	CountryName string  `json:"country_name"` // localized, shown for foreign places
 }
 
 type station struct {
@@ -192,14 +193,12 @@ func (m *Module) resolve(place string, cb func(g geo, ok bool)) {
 		cb(geo{}, false)
 		return
 	}
-	// a cached entry without a country predates the abroad/warning
-	// support: re-geocode it instead of treating the place as foreign
-	if g, ok := m.geoCache[key]; ok && g.Country != "" {
+	if g, ok := m.geoCache[key]; ok && geoUsable(g) {
 		cb(g, true)
 		return
 	}
 	var g geo
-	if found, err := m.ctx.Store.Get(m.Name(), "geo "+key, &g); err == nil && found && g.Country != "" {
+	if found, err := m.ctx.Store.Get(m.Name(), "geo "+key, &g); err == nil && found && geoUsable(g) {
 		m.geoCache[key] = g
 		cb(g, true)
 		return
@@ -208,11 +207,12 @@ func (m *Module) resolve(place string, cb func(g geo, ok bool)) {
 	m.fetch(u, fetch.Options{}, func(res fetch.Result) {
 		var out struct {
 			Results []struct {
-				Name    string  `json:"name"`
-				Lat     float64 `json:"latitude"`
-				Lon     float64 `json:"longitude"`
-				Country string  `json:"country_code"`
-				Admin1  string  `json:"admin1"`
+				Name        string  `json:"name"`
+				Lat         float64 `json:"latitude"`
+				Lon         float64 `json:"longitude"`
+				Country     string  `json:"country_code"`
+				Admin1      string  `json:"admin1"`
+				CountryName string  `json:"country"`
 			} `json:"results"`
 		}
 		if res.Err != nil || json.Unmarshal(res.Body, &out) != nil || len(out.Results) == 0 {
@@ -220,7 +220,8 @@ func (m *Module) resolve(place string, cb func(g geo, ok bool)) {
 			return
 		}
 		r := out.Results[0]
-		g := geo{Name: r.Name, Lat: r.Lat, Lon: r.Lon, Country: r.Country, Area: r.Admin1}
+		g := geo{Name: r.Name, Lat: r.Lat, Lon: r.Lon, Country: r.Country, Area: r.Admin1,
+			CountryName: r.CountryName}
 		m.geoCache[key] = g
 		if err := m.ctx.Store.Put(m.Name(), "geo "+key, g); err != nil {
 			// cache miss next boot, nothing worse
@@ -228,6 +229,43 @@ func (m *Module) resolve(place string, cb func(g geo, ok bool)) {
 		}
 		cb(g, true)
 	})
+}
+
+// geoUsable reports whether a cached geo has every field the current
+// code renders; older entries (no country, or foreign without a country
+// name) get re-geocoded once instead of showing half a label.
+func geoUsable(g geo) bool {
+	if g.Country == "" {
+		return false
+	}
+	return g.Country == "NL" || g.CountryName != ""
+}
+
+// placeLabel renders a resolved place plus where it is and where the
+// numbers come from: "!weer venus" answered from Venus, Texas without a
+// word about Texas (live 2026-07-15), which reads like the planet.
+// Dutch places skip the region (the station suffix or context covers
+// it); src ("open-meteo", or a station for weerdiff) is always named.
+func placeLabel(g geo, src string) string {
+	var parts []string
+	if g.Country != "NL" {
+		if g.Area != "" && !strings.EqualFold(g.Area, g.Name) {
+			parts = append(parts, g.Area)
+		}
+		switch {
+		case g.CountryName != "":
+			parts = append(parts, g.CountryName)
+		case g.Country != "":
+			parts = append(parts, g.Country)
+		}
+	}
+	if src != "" {
+		parts = append(parts, src)
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("{B}{b}%s{/}", g.Name)
+	}
+	return fmt.Sprintf("{B}{b}%s{/} (%s)", g.Name, strings.Join(parts, ", "))
 }
 
 // withFeed hands cb the buienradar feed, cached for a few minutes.
@@ -324,7 +362,7 @@ func (m *Module) openMeteoWeer(channel string, g geo) {
 			return
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "{B}{b}%s{/}: %s", g.Name, temp(*c.temp))
+		fmt.Fprintf(&b, "%s: %s", placeLabel(g, "open-meteo"), temp(*c.temp))
 		if *c.feels != *c.temp {
 			fmt.Fprintf(&b, " (voelt als %s)", temp(*c.feels))
 		}
@@ -383,7 +421,7 @@ func (m *Module) openMeteoForecast(channel string, g geo) {
 		today, _, _ := strings.Cut(now, "T")
 
 		var b strings.Builder
-		fmt.Fprintf(&b, "{B}{b}%s{/}", g.Name)
+		b.WriteString(placeLabel(g, "open-meteo"))
 
 		// rest of today: peak temperature still ahead, the wettest hour
 		// still ahead, sunset if it has not happened yet
@@ -491,7 +529,7 @@ func (m *Module) cbRegen(d *cmd.Data) bool {
 				m.ctx.Privmsg(channel, "Buienradar doet het even niet.")
 				return
 			}
-			m.ctx.Privmsg(channel, regenLine(g.Name, pts))
+			m.ctx.Privmsg(channel, regenLine(placeLabel(g, ""), pts))
 		})
 	})
 	return true
@@ -532,7 +570,7 @@ func (m *Module) openMeteoRegen(channel string, g geo) {
 			}
 			pts = append(pts, rainPoint{Value: mmToRaintext(mm), Time: clockOf(t)})
 		}
-		m.ctx.Privmsg(channel, regenLine(g.Name, pts))
+		m.ctx.Privmsg(channel, regenLine(placeLabel(g, "open-meteo"), pts))
 	})
 }
 
@@ -750,7 +788,8 @@ func mmPerHour(v int) float64 {
 	return math.Pow(10, float64(v-109)/32)
 }
 
-func regenLine(place string, pts []rainPoint) string {
+// regenLine renders the sparkline; label is a placeLabel result.
+func regenLine(label string, pts []rainPoint) string {
 	firstWet, peak := -1, 0
 	peakAt := ""
 	values := make([]float64, len(pts))
@@ -765,15 +804,15 @@ func regenLine(place string, pts []rainPoint) string {
 	}
 	last := pts[len(pts)-1].Time
 	if firstWet == -1 {
-		return fmt.Sprintf("{B}{b}%s{/}: droog tot zeker %s.", place, last)
+		return fmt.Sprintf("%s: droog tot zeker %s.", label, last)
 	}
 	spark := format.Sparkline(values, 1)[0]
 	when := "nu regen"
 	if firstWet > 0 {
 		when = "regen vanaf " + pts[firstWet].Time
 	}
-	return fmt.Sprintf("{B}{b}%s{/}: {C}%s{/} (tot %s), %s, piek {C}%.1fmm/u{/} om %s",
-		place, spark, last, when, mmPerHour(peak), peakAt)
+	return fmt.Sprintf("%s: {C}%s{/} (tot %s), %s, piek {C}%.1fmm/u{/} om %s",
+		label, spark, last, when, mmPerHour(peak), peakAt)
 }
 
 // --- warnings (code geel/oranje/rood) ---
@@ -1058,7 +1097,7 @@ func (m *Module) report() {
 				if !ok || !wet {
 					return
 				}
-				line := regenLine(g.Name, pts)
+				line := regenLine(placeLabel(g, ""), pts)
 				for _, ch := range channels {
 					m.ctx.Privmsg(ch, line)
 				}
