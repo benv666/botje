@@ -1,6 +1,7 @@
 package rvf
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -448,14 +449,15 @@ func TestHiscoreOrdering(t *testing.T) {
 	f.msg("Lotjuh", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
 	f.take()
 
-	// game 2: BenV wins big (fl. 1000 spin, 7x T = 7000)
+	// game 2: BenV wins big (fl. 1000 spin, 2x T = 2000). Roll 0 now
+	// lands on the SECOND corpus entry: game 1's puzzle is recent.
 	f.rolls = []int{0}
 	f.msg("BenV", "#radvanfortuin", "!start BenV")
 	f.rolls = []int{20}
 	f.msg("BenV", "#radvanfortuin", "draai")
 	f.msg("BenV", "#radvanfortuin", "t")
 	f.rolls = []int{3} // art variant
-	f.msg("BenV", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
+	f.msg("BenV", "#radvanfortuin", "los op: de appel valt niet ver van de boom")
 	out := f.all()
 	if !strings.Contains(out, "Plek 1") {
 		t.Fatalf("the bigger win should enter at position 1: %q", out)
@@ -670,5 +672,142 @@ func TestBoardOnSpecials(t *testing.T) {
 	out := f.all()
 	if !strings.Contains(out, "BANKROET") || !strings.Contains(out, "░") {
 		t.Fatalf("bankrupt lacks the board: %q", out)
+	}
+}
+
+// "!start BenV, Ventiel draai" (Ventiel live 2026-07-15): the eager
+// trailing verb became a phantom player the game then stalled on for
+// two timeout rounds. Game words are not nicks.
+func TestStartRefusesGameVerbsAsPlayers(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("Ventiel", "#radvanfortuin", "!start BenV, Ventiel draai")
+	out := f.all()
+	if strings.Contains(out, "aan de beurt") {
+		t.Fatalf("game started with a verb as player: %q", out)
+	}
+	if len(f.m.games) != 0 {
+		t.Fatal("refused start left a game behind")
+	}
+	// the english verbs are blocked in english channels too
+	f.msg("Bram", "#wheeloffortune", "!start Bram, spin")
+	if out := f.all(); strings.Contains(out, "is up") || len(f.m.games) != 0 {
+		t.Fatalf("english verb accepted as player: %q", out)
+	}
+	// and a clean start still works
+	f.startGame("#radvanfortuin", "BenV,Ventiel")
+	if out := f.all(); !strings.Contains(out, "aan de beurt") {
+		t.Fatalf("clean start blocked: %q", out)
+	}
+}
+
+// A fl. 0 win is not a hiscore ("Plek 4 in de toptien!" for zero
+// guilders, BenV live 2026-07-15).
+func TestZeroScoreWinSkipsHiscores(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#radvanfortuin", "BenV")
+	f.take()
+	f.rolls = []int{0} // art variant
+	f.msg("BenV", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
+	out := f.all()
+	if !strings.Contains(out, "JUIST") {
+		t.Fatalf("solve failed: %q", out)
+	}
+	if strings.Contains(out, "Plek") {
+		t.Fatalf("zero win entered the toptien: %q", out)
+	}
+	f.msg("BenV", "#radvanfortuin", "!top10")
+	if out := f.all(); !strings.Contains(out, "Nog geen winnaars") {
+		t.Fatalf("top10 not empty after a zero win: %q", out)
+	}
+}
+
+// The toptien shows what they won with ("die top10 moet ook de spreuk
+// erbij waar ze mee wonnen", BenV live 2026-07-15). Entries from before
+// this field render without one.
+func TestTop10ShowsWinningPuzzle(t *testing.T) {
+	store := storage.NewMemory()
+	if err := store.Put("rvf", "hiscores", []map[string]any{
+		{"nick": "Oudje", "channel": "#radvanfortuin", "lang": "nl", "score": 100, "when": 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t, store)
+	f.startGame("#radvanfortuin", "BenV")
+	f.take()
+	f.rolls = []int{20}
+	f.msg("BenV", "#radvanfortuin", "draai")
+	f.msg("BenV", "#radvanfortuin", "t")
+	f.rolls = []int{0} // art variant
+	f.msg("BenV", "#radvanfortuin", "los op: wie het laatst lacht lacht het best")
+	f.take()
+	f.msg("BenV", "#radvanfortuin", "!top10")
+	out := f.all()
+	if !strings.Contains(out, "WIE HET LAATST LACHT LACHT HET BEST") {
+		t.Fatalf("top10 missing the winning puzzle: %q", out)
+	}
+	if !strings.Contains(out, "Oudje") {
+		t.Fatalf("legacy entry without puzzle lost: %q", out)
+	}
+}
+
+// The same puzzle two games in a row (HET IS KOEK EN EI on 2026-07-14
+// AND the next morning, "bad random seed or verdomd toeval"): it was
+// toeval, but fresh games now skip recently played puzzles.
+func TestRecentPuzzlesNotRepeated(t *testing.T) {
+	store := storage.NewMemory()
+	f := newFixture(t, store)
+	f.startGame("#radvanfortuin", "BenV")
+	f.take()
+	first := f.m.games[gameKey("junerules", "#radvanfortuin")].Puzzle
+	f.msg("BenV", "#radvanfortuin", "!stop")
+	f.take()
+
+	f.startGame("#radvanfortuin", "BenV") // roll 0 again
+	second := f.m.games[gameKey("junerules", "#radvanfortuin")].Puzzle
+	if second == first {
+		t.Fatalf("same puzzle twice in a row: %q", first)
+	}
+	f.msg("BenV", "#radvanfortuin", "!stop")
+	f.take()
+
+	// the recent list survives a restart
+	if err := f.saver.FlushSync(); err != nil {
+		t.Fatal(err)
+	}
+	f2 := newFixture(t, store)
+	f2.startGame("#radvanfortuin", "BenV")
+	third := f2.m.games[gameKey("junerules", "#radvanfortuin")].Puzzle
+	if third == first || third == second {
+		t.Fatalf("recent puzzle repeated after restart: %q %q %q", first, second, third)
+	}
+}
+
+// When every puzzle is recent (tiny extra-only pools, or a corpus
+// shrink) the filter falls back to the full pool instead of refusing.
+func TestRecentPuzzlesExhaustedFallsBack(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	for _, p := range f.m.pool("nl") {
+		f.m.recent["nl"] = append(f.m.recent["nl"], p.Text)
+	}
+	f.startGame("#radvanfortuin", "BenV")
+	if out := f.all(); !strings.Contains(out, "aan de beurt") {
+		t.Fatalf("exhausted recent list blocked the start: %q", out)
+	}
+}
+
+// The recent list stays capped: oldest entries fall off.
+func TestRecentPuzzlesCapped(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	for i := range recentMax {
+		f.m.recent["nl"] = append(f.m.recent["nl"], fmt.Sprintf("fake %d", i))
+	}
+	f.startGame("#radvanfortuin", "BenV")
+	f.take()
+	got := f.m.recent["nl"]
+	if len(got) != recentMax {
+		t.Fatalf("recent list not capped: %d entries", len(got))
+	}
+	if got[0] != "fake 1" || !strings.Contains(got[recentMax-1], "Wie het laatst") {
+		t.Fatalf("recent list not FIFO: first %q last %q", got[0], got[recentMax-1])
 	}
 }

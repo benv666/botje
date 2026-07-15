@@ -30,13 +30,15 @@ import (
 	"go-botje/internal/module"
 )
 
-// Score is one top-10 entry.
+// Score is one top-10 entry. Puzzle is what they won with; entries
+// from before the field exist without one.
 type Score struct {
 	Nick    string `json:"nick"`
 	Channel string `json:"channel"`
 	Lang    string `json:"lang"`
 	Score   int    `json:"score"`
 	When    int64  `json:"when"`
+	Puzzle  string `json:"puzzle,omitempty"`
 }
 
 // Module implements the game keeper.
@@ -51,15 +53,17 @@ type Module struct {
 	gen      map[string]int   // turn-timer generations, stale timers no-op
 	hiscores []Score
 	extra    map[string][]Puzzle // lang -> telnet-added puzzles
+	recent   map[string][]string // lang -> recently played puzzle texts
 	unloaded bool
 }
 
 // New returns the module.
 func New() *Module {
 	return &Module{
-		games: make(map[string]*Game),
-		gen:   make(map[string]int),
-		extra: make(map[string][]Puzzle),
+		games:  make(map[string]*Game),
+		gen:    make(map[string]int),
+		extra:  make(map[string][]Puzzle),
+		recent: make(map[string][]string),
 	}
 }
 
@@ -100,11 +104,15 @@ func (m *Module) Load(ctx *module.Context) error {
 	ctx.Store.Get(m.Name(), "games", &m.games)
 	ctx.Store.Get(m.Name(), "hiscores", &m.hiscores)
 	ctx.Store.Get(m.Name(), "puzzles", &m.extra)
+	ctx.Store.Get(m.Name(), "recent_puzzles", &m.recent)
 	if m.games == nil {
 		m.games = make(map[string]*Game)
 	}
 	if m.extra == nil {
 		m.extra = make(map[string][]Puzzle)
+	}
+	if m.recent == nil {
+		m.recent = make(map[string][]string)
 	}
 	// restored games get a fresh full turn timer; nick-keyed games are
 	// query games whatever the stored flag says (games persisted before
@@ -209,6 +217,43 @@ func (m *Module) pool(lang string) []Puzzle {
 	return append(builtin, m.extra[lang]...)
 }
 
+// recentMax is how many recently played puzzles per language a fresh
+// game skips: HET IS KOEK EN EI came up twice in five games straight
+// off a ~200-puzzle corpus (live 2026-07-14/15). Fair odds, annoyed
+// players.
+const recentMax = 25
+
+// pickPuzzle draws a puzzle that was not recently played (falling back
+// to the full pool when everything was) and records the draw.
+func (m *Module) pickPuzzle(lang string) (Puzzle, bool) {
+	pool := m.pool(lang)
+	if len(pool) == 0 {
+		return Puzzle{}, false
+	}
+	fresh := slices.DeleteFunc(slices.Clone(pool), func(p Puzzle) bool {
+		return slices.Contains(m.recent[lang], p.Text)
+	})
+	if len(fresh) == 0 {
+		fresh = pool
+	}
+	p := fresh[m.rollN(len(fresh))]
+	recent := append(m.recent[lang], p.Text)
+	if len(recent) > recentMax {
+		recent = recent[len(recent)-recentMax:]
+	}
+	m.recent[lang] = recent
+	m.ctx.Saver.Mark(m.Name(), "recent_puzzles", func() any { return m.recent })
+	return p, true
+}
+
+// gameVerbs are the move words of both languages: none of them is ever
+// a player ("!start BenV, Ventiel draai" fielded a phantom player
+// named draai the game then stalled on, live 2026-07-15).
+var gameVerbs = map[string]bool{
+	"draai": true, "draaien": true, "koop": true, "los": true, "op": true, "pas": true,
+	"spin": true, "buy": true, "solve": true, "pass": true,
+}
+
 func (m *Module) rollN(n int) int {
 	if m.Rand != nil {
 		return m.Rand(n)
@@ -268,6 +313,10 @@ func (m *Module) cbStart(d *cmd.Data) bool {
 				m.ctx.Privmsg(ev.Channel, t.sillyNick)
 				return true
 			}
+			if gameVerbs[strings.ToLower(n)] {
+				m.ctx.Privmsg(ev.Channel, fmt.Sprintf(t.verbNick, n))
+				return true
+			}
 			if !slices.ContainsFunc(nicks, func(have string) bool { return strings.EqualFold(have, n) }) {
 				nicks = append(nicks, n)
 			}
@@ -280,12 +329,11 @@ func (m *Module) cbStart(d *cmd.Data) bool {
 	if len(nicks) == 0 {
 		nicks = []string{ev.Sender.Nick}
 	}
-	pool := m.pool(lang)
-	if len(pool) == 0 {
+	p, ok := m.pickPuzzle(lang)
+	if !ok {
 		m.ctx.Privmsg(ev.Channel, t.noPuzzles)
 		return true
 	}
-	p := pool[m.rollN(len(pool))]
 	g := NewGame(lang, p.Category, p.Text, nicks)
 	g.Query = ev.Query
 	m.games[key] = g
@@ -322,8 +370,12 @@ func (m *Module) cbTop10(d *cmd.Data) bool {
 	}
 	lines := []string{t.top10Title}
 	for i, s := range m.hiscores {
-		lines = append(lines, fmt.Sprintf("%2d. {B}{b}%s{/} {g}%s{/} (%s)",
-			i+1, s.Nick, langs[s.Lang].money(s.Score), s.Channel))
+		line := fmt.Sprintf("%2d. {B}{b}%s{/} {g}%s{/} (%s)",
+			i+1, s.Nick, langs[s.Lang].money(s.Score), s.Channel)
+		if s.Puzzle != "" {
+			line += fmt.Sprintf(" {y}%s{/}", s.Puzzle)
+		}
+		lines = append(lines, line)
 	}
 	m.ctx.Pager.EventMsg(d.Event, "top10", strings.Join(lines, "\n"))
 	return true
@@ -337,8 +389,13 @@ func (m *Module) endGame(key string) {
 }
 
 // recordScore inserts a win into the top-10; returns the 1-based
-// position, or 0 when it did not make the list.
+// position, or 0 when it did not make the list. Winning with zero
+// money is its own reward ("Plek 4 in de toptien!" for fl. 0, live
+// 2026-07-15).
 func (m *Module) recordScore(s Score) int {
+	if s.Score <= 0 {
+		return 0
+	}
 	m.hiscores = append(m.hiscores, s)
 	sort.SliceStable(m.hiscores, func(i, j int) bool { return m.hiscores[i].Score > m.hiscores[j].Score })
 	if len(m.hiscores) > 10 {
@@ -540,7 +597,7 @@ func (m *Module) handleMove(key string, g *Game, t *texts, msg string, reply fun
 			channel := channelOf(key)
 			if pos := m.recordScore(Score{
 				Nick: winner.Nick, Channel: channel, Lang: g.Lang,
-				Score: winner.Money, When: m.now().Unix(),
+				Score: winner.Money, When: m.now().Unix(), Puzzle: g.Puzzle,
 			}); pos > 0 {
 				out += fmt.Sprintf(t.hiscoreEntry, pos)
 			}

@@ -32,6 +32,7 @@ type texts struct {
 	wrongAction              []string // anything but a letter while one is owed
 	tooMany                  string
 	sillyNick                string
+	verbNick                 string // the game word offered as a player
 	broke                    string // vowel cost
 	solveWin                 string // nick, amount, solution
 	solveWrong               string
@@ -90,8 +91,9 @@ var langs = map[string]*texts{
 		},
 		tooMany:      "Zoveel stoelen heeft de studio niet (max {y}8{/} spelers).",
 		sillyNick:    "En hoe gaan we die dan roepen? Normale nicks graag.",
+		verbNick:     "{y}%s{/} speelt niet mee, dat is een spelwoord. Eerst {y}!start nick1,nick2{/}, daarna draaien.",
 		broke:        "Daar heb je het geld niet voor (een klinker kost %s).",
-		solveWin:     "{G}JUIST!{/} {B}{b}%s{/} wint {g}%s{/}! De oplossing: {y}%s{/}",
+		solveWin:     "{G}JUIST!{/} {B}{b}%s{/} wint {g}%s{/}! De oplossing: {y}%s{/}.",
 		solveWrong:   "{r}Helaas, dat is het niet.{/}",
 		hiscoreEntry: " {c}Plek %d in de toptien!{/}",
 		wrongLabel:   "fout:",
@@ -147,8 +149,9 @@ var langs = map[string]*texts{
 		},
 		tooMany:      "The studio only has {y}8{/} chairs.",
 		sillyNick:    "And how would we call that out? Normal nicks please.",
+		verbNick:     "{y}%s{/} is not playing, that is a game word. {y}!start nick1,nick2{/} first, spin after.",
 		broke:        "You cannot afford that (a vowel costs %s).",
-		solveWin:     "{G}CORRECT!{/} {B}{b}%s{/} wins {g}%s{/}! The answer: {y}%s{/}",
+		solveWin:     "{G}CORRECT!{/} {B}{b}%s{/} wins {g}%s{/}! The answer: {y}%s{/}.",
 		solveWrong:   "{r}Sorry, that is not it.{/}",
 		hiscoreEntry: " {c}Number %d on the leaderboard!{/}",
 		wrongLabel:   "wrong:",
