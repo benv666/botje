@@ -202,6 +202,15 @@ func (c *core) inChannel(channel string) bool {
 	return c.session != nil && c.session.InChannel(channel)
 }
 
+// members lists a channel's tracked nicks (the module Members). Empty
+// while disconnected.
+func (c *core) members(channel string) []string {
+	if c.session == nil {
+		return nil
+	}
+	return c.session.Members(channel)
+}
+
 // shutdown lets modules say goodbye and, unless running under a keeper,
 // sends the IRC QUIT. Under a keeper the session must survive a core
 // restart, so the QUIT is suppressed and the connection just closes;

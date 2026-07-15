@@ -17,21 +17,25 @@ import (
 )
 
 type fixture struct {
-	m     *Module
-	b     *bus.Bus
-	cmds  *cmd.Registry
-	cf    *conf.Conf
-	sch   *sched.Sched
-	clk   time.Time
-	saver *storage.Saver
-	sent  []string
-	raw   []string // SendRaw lines (topic assertions)
-	rolls []int    // scripted Rand results, consumed in order
+	m       *Module
+	b       *bus.Bus
+	cmds    *cmd.Registry
+	cf      *conf.Conf
+	sch     *sched.Sched
+	clk     time.Time
+	saver   *storage.Saver
+	sent    []string
+	raw     []string            // SendRaw lines (topic assertions)
+	rolls   []int               // scripted Rand results, consumed in order
+	members map[string][]string // ctx.Members data; unset channel = nil (fail open)
 }
 
 func newFixture(t *testing.T, store storage.Store) *fixture {
 	t.Helper()
-	f := &fixture{clk: time.Date(2026, 7, 14, 20, 0, 0, 0, time.Local)}
+	f := &fixture{
+		clk:     time.Date(2026, 7, 14, 20, 0, 0, 0, time.Local),
+		members: map[string][]string{},
+	}
 	f.b = bus.New()
 	f.b.RegisterEvent("IRC_PRIVMSG")
 	f.b.RegisterEvent("IRC_JOIN")
@@ -60,6 +64,7 @@ func newFixture(t *testing.T, store storage.Store) *fixture {
 		Saver: f.saver, Pager: pg,
 		Privmsg: func(ch, msg string) { f.sent = append(f.sent, ch+"|"+msg) },
 		SendRaw: func(line string) { f.raw = append(f.raw, line) },
+		Members: func(ch string) []string { return f.members[ch] },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -809,5 +814,36 @@ func TestRecentPuzzlesCapped(t *testing.T) {
 	}
 	if got[0] != "fake 1" || !strings.Contains(got[recentMax-1], "Wie het laatst") {
 		t.Fatalf("recent list not FIFO: first %q last %q", got[0], got[recentMax-1])
+	}
+}
+
+// Players who are not actually in the channel are refused: the phantom
+// stalls the game for everyone (the "draai" incident was one instance,
+// any absent nick does the same).
+func TestStartRefusesAbsentPlayers(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.members["#radvanfortuin"] = []string{"Meretrix", "BenV", "Ventiel"}
+	f.msg("BenV", "#radvanfortuin", "!start BenV, Ventiel, Bram")
+	out := f.all()
+	if strings.Contains(out, "aan de beurt") || len(f.m.games) != 0 {
+		t.Fatalf("absent player started a game: %q", out)
+	}
+	if !strings.Contains(out, "Bram") {
+		t.Fatalf("refusal should name the absentee: %q", out)
+	}
+	// present players start fine, case-insensitively
+	f.startGame("#radvanfortuin", "benv,VENTIEL")
+	if out := f.all(); !strings.Contains(out, "aan de beurt") {
+		t.Fatalf("present players blocked: %q", out)
+	}
+}
+
+// No member data (NAMES not landed yet, or a fresh join) fails open:
+// refusing everyone right after a restart would be worse.
+func TestStartWithoutMemberDataFailsOpen(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.startGame("#radvanfortuin", "BenV,Ventiel")
+	if out := f.all(); !strings.Contains(out, "aan de beurt") {
+		t.Fatalf("empty member list blocked the start: %q", out)
 	}
 }

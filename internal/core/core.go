@@ -186,6 +186,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Privmsg:   c.privmsg,
 		SendRaw:   c.sendRaw,
 		InChannel: c.inChannel,
+		Members:   c.members,
 	}
 	for _, m := range cfg.Modules {
 		if err := m.Load(mctx); err != nil {
