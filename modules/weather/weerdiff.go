@@ -13,11 +13,14 @@ import (
 // conditions is one place's current weather, whichever source supplied
 // it (buienradar station or open-meteo); !weerdiff compares two of
 // these. Nil fields were not measured (some stations skip humidity or
-// wind) and their pair is left out of the diff.
+// wind) and their pair is left out of the diff. src names the supplier:
+// two places on the same station give identical numbers, which without
+// attribution reads as a bug ("geloof er niks van", live 2026-07-15).
 type conditions struct {
 	temp, feels, humidity, windBft *float64
 	windDir                        string
 	desc                           string
+	src                            string
 }
 
 // withConditions fetches a resolved place's current conditions via the
@@ -34,6 +37,8 @@ func (m *Module) withConditions(g geo, cb func(c conditions, ok bool)) {
 					temp: st.Temperature, feels: st.FeelsLike,
 					humidity: st.Humidity, windBft: st.WindBft,
 					windDir: st.WindDir, desc: strings.ToLower(st.Description),
+					src: fmt.Sprintf("meetstation %s, %dkm",
+						strings.TrimPrefix(st.Name, "Meetstation "), km),
 				}, true)
 				return
 			}
@@ -67,6 +72,7 @@ func (m *Module) meteoConditions(g geo, cb func(c conditions, ok bool)) {
 		cb(conditions{
 			temp: &c.Temp, feels: &c.Feels, humidity: &c.Humidity, windBft: &bft,
 			windDir: degToDir(c.WindDeg), desc: wmoText(c.Code),
+			src: "open-meteo",
 		}, true)
 	})
 }
@@ -127,7 +133,7 @@ func (m *Module) cbWeerdiff(d *cmd.Data) bool {
 						m.ctx.Privmsg(channel, "Het weer is even zoek.")
 						return
 					}
-					m.ctx.Privmsg(channel, diffLine(ga.Name, ca, gb.Name, cb))
+					m.ctx.Privmsg(channel, diffLine(ga, ca, gb, cb))
 				})
 			})
 		})
@@ -139,7 +145,10 @@ const diffUsage = "Gebruik: !weerdiff <plaats1> <plaats2> (komma voor namen met 
 	"!weerdiff wijk aan zee, den haag). Een plaats vergelijkt met thuis."
 
 // diffLine renders the side-by-side: only pairs both sides measured.
-func diffLine(nameA string, a conditions, nameB string, b conditions) string {
+// Each side is labeled with its source (same station twice = identical
+// numbers, and that must be visible).
+func diffLine(ga geo, a conditions, gb geo, b conditions) string {
+	nameA, nameB := ga.Name, gb.Name
 	var parts []string
 	if a.temp != nil && b.temp != nil {
 		parts = append(parts, fmt.Sprintf("%s vs %s", temp(*a.temp), temp(*b.temp)))
@@ -162,7 +171,8 @@ func diffLine(nameA string, a conditions, nameB string, b conditions) string {
 			parts = append(parts, a.desc+" vs "+b.desc)
 		}
 	}
-	line := fmt.Sprintf("{B}{b}%s{/} vs {B}{b}%s{/}: %s", nameA, nameB, strings.Join(parts, ", "))
+	line := fmt.Sprintf("%s vs %s: %s",
+		placeLabel(ga, a.src), placeLabel(gb, b.src), strings.Join(parts, ", "))
 	if a.temp != nil && b.temp != nil {
 		line += " | " + verdict(nameA, *a.temp, nameB, *b.temp)
 	}

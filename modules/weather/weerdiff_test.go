@@ -72,6 +72,12 @@ func TestWeerdiffCommaAndDraw(t *testing.T) {
 			t.Fatalf("draw diff missing %q: %q", want, got[0])
 		}
 	}
+	// identical numbers made BenV cry foul ("geloof er niks van",
+	// !weerdiff hauwert aartswoud live 2026-07-15): both sides must show
+	// their source, which here is the same station twice
+	if strings.Count(got[0], "meetstation Berkhout") != 2 {
+		t.Fatalf("per-side station attribution missing: %q", got[0])
+	}
 }
 
 // abroad goes through open-meteo, mixed with a station on the other
@@ -83,7 +89,10 @@ func TestWeerdiffAbroad(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("sent = %q", got)
 	}
-	for _, want := range []string{"24.6°C", "29.2°C", "Barcelona is 4.6°C warmer"} {
+	for _, want := range []string{
+		"24.6°C", "29.2°C", "Barcelona is 4.6°C warmer",
+		"(meetstation Berkhout, 10km)", "(Catalonia, Spanje, open-meteo)",
+	} {
 		if !strings.Contains(got[0], want) {
 			t.Fatalf("abroad diff missing %q: %q", want, got[0])
 		}
