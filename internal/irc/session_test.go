@@ -313,7 +313,7 @@ func TestNickInUseRetriesWithUnderscore(t *testing.T) {
 func TestJoinChannels(t *testing.T) {
 	f := newSess()
 	f.s.JoinChannels([]string{"#testing", "#other"})
-	want := []string{"JOIN #testing", "JOIN #other"}
+	want := []string{"JOIN #testing", "NAMES #testing", "JOIN #other", "NAMES #other"}
 	if !slices.Equal(f.sent, want) {
 		t.Fatalf("sent = %q, want %q", f.sent, want)
 	}
@@ -398,5 +398,94 @@ func TestBackoff(t *testing.T) {
 	now = now.Add(301 * time.Second)
 	if got := b.Next(now); got != 3*time.Second {
 		t.Fatalf("Next after quiet period = %v, want reset to 3s", got)
+	}
+}
+
+// --- channel member tracking (NAMES) ---
+
+// NAMES replies build the member list: 353 accumulates, 366 swaps it
+// in, status prefixes are stripped, and a later refresh REPLACES the
+// list instead of merging into it.
+func TestNamesReplyBuildsMembers(t *testing.T) {
+	f := newSess()
+	f.s.HandleLine(":Meretrix!bot@host JOIN #testing")
+	f.events = nil
+	f.s.HandleLine(":srv 353 Meretrix = #testing :BenV @Verty +Lotjuh")
+	f.s.HandleLine(":srv 353 Meretrix = #testing :~Bram %Ventiel")
+	f.s.HandleLine(":srv 366 Meretrix #testing :End of /NAMES list.")
+	want := []string{"BenV", "Bram", "Lotjuh", "Ventiel", "Verty"}
+	if got := f.s.Members("#testing"); !slices.Equal(got, want) {
+		t.Fatalf("Members = %q, want %q", got, want)
+	}
+	if len(f.events) != 0 {
+		t.Fatalf("NAMES numerics produced events: %+v", f.events)
+	}
+	// a refresh replaces: Verty is gone from the new list
+	f.s.HandleLine(":srv 353 Meretrix = #testing :BenV")
+	f.s.HandleLine(":srv 366 Meretrix #testing :End of /NAMES list.")
+	if got := f.s.Members("#testing"); !slices.Equal(got, []string{"BenV"}) {
+		t.Fatalf("refreshed Members = %q, want just BenV", got)
+	}
+}
+
+// join/part/kick/quit/nick keep the member list current between NAMES
+// refreshes.
+func TestMembersTrackedThroughEvents(t *testing.T) {
+	f := newSess()
+	f.s.HandleLine(":Meretrix!bot@host JOIN #testing")
+	f.s.HandleLine(":Meretrix!bot@host JOIN #other")
+	f.s.HandleLine(":srv 353 Meretrix = #testing :BenV Verty")
+	f.s.HandleLine(":srv 366 Meretrix #testing :End of /NAMES list.")
+	f.s.HandleLine(":srv 353 Meretrix = #other :BenV")
+	f.s.HandleLine(":srv 366 Meretrix #other :End of /NAMES list.")
+
+	f.s.HandleLine(":Bram!b@h JOIN #testing")
+	if !f.s.NickIn("#testing", "bram") { // nicks are case-insensitive
+		t.Fatal("joined nick not tracked")
+	}
+	f.s.HandleLine(":Verty!v@h PART #testing")
+	if f.s.NickIn("#testing", "Verty") {
+		t.Fatal("parted nick still tracked")
+	}
+	f.s.HandleLine(":op!o@h KICK #testing Bram :out")
+	if f.s.NickIn("#testing", "Bram") {
+		t.Fatal("kicked nick still tracked")
+	}
+	// a quit disappears from every shared channel
+	f.s.HandleLine(":BenV!b@h QUIT :Quit: weg")
+	if f.s.NickIn("#testing", "BenV") || f.s.NickIn("#other", "BenV") {
+		t.Fatal("quit nick still tracked")
+	}
+	// a nick change renames, it does not add
+	f.s.HandleLine(":srv 353 Meretrix = #testing :Lotjuh")
+	f.s.HandleLine(":srv 366 Meretrix #testing :End of /NAMES list.")
+	f.s.HandleLine(":Lotjuh!l@h NICK :Slotjuh")
+	if f.s.NickIn("#testing", "Lotjuh") || !f.s.NickIn("#testing", "Slotjuh") {
+		t.Fatalf("nick change not applied: %q", f.s.Members("#testing"))
+	}
+}
+
+// JoinChannels asks for NAMES explicitly: a core resuming a keeper's
+// live session gets no JOIN echo for already-joined channels (the
+// 2026-07-08 InChannel lesson), so without this the member list would
+// stay empty until the next full reconnect.
+func TestJoinChannelsRequestsNames(t *testing.T) {
+	f := newSess()
+	f.s.JoinChannels([]string{"#testing"})
+	if !slices.Contains(f.sent, "NAMES #testing") {
+		t.Fatalf("no NAMES request: %q", f.sent)
+	}
+}
+
+// The bot's own re-join resets the list: whoever was tracked before a
+// kick is stale by the time we are back.
+func TestOwnRejoinResetsMembers(t *testing.T) {
+	f := newSess()
+	f.s.HandleLine(":Meretrix!bot@host JOIN #testing")
+	f.s.HandleLine(":srv 353 Meretrix = #testing :BenV")
+	f.s.HandleLine(":srv 366 Meretrix #testing :End of /NAMES list.")
+	f.s.HandleLine(":Meretrix!bot@host JOIN #testing")
+	if got := f.s.Members("#testing"); len(got) != 0 {
+		t.Fatalf("members survived own re-join: %q", got)
 	}
 }

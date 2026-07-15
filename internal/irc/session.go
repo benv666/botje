@@ -11,10 +11,14 @@ import (
 	"go-botje/internal/bus"
 )
 
-// channelState is what the bot tracks per joined channel.
+// channelState is what the bot tracks per joined channel. members maps
+// lower(nick) to the display nick; pending accumulates a NAMES burst
+// (353 lines) until 366 swaps it in, so a refresh replaces the list.
 type channelState struct {
-	joined time.Time
-	topic  string
+	joined  time.Time
+	topic   string
+	members map[string]string
+	pending map[string]string
 }
 
 // Session is the per-network protocol state machine: parsed lines in,
@@ -86,6 +90,11 @@ func (s *Session) Register() {
 func (s *Session) JoinChannels(channels []string) {
 	for _, ch := range channels {
 		s.Send("JOIN " + ch)
+		// ask for NAMES explicitly: a fresh join gets one for free, but a
+		// core resuming a keeper's live session gets no JOIN echo for an
+		// already-joined channel (the InChannel lesson of 2026-07-08) and
+		// would sit on an empty member list until the next real reconnect
+		s.Send("NAMES " + ch)
 		if _, ok := s.channels[ch]; !ok {
 			s.channels[ch] = &channelState{joined: s.now()}
 		}
@@ -142,10 +151,16 @@ func (s *Session) HandleLine(raw string) {
 		s.onInvite(ev, line)
 	case "QUIT":
 		s.onQuit(ev, line)
+	case "NICK":
+		s.onNick(ev, line)
 	case "TOPIC":
 		s.onTopic(ev, line)
 	case "RPL_TOPIC":
 		s.onRplTopic(line)
+	case "RPL_NAMREPLY":
+		s.onNamReply(line)
+	case "RPL_ENDOFNAMES":
+		s.onEndOfNames(line)
 	case "ERR_NICKNAMEINUSE":
 		// divergence from the Perl (which sat nickless forever): retry
 		// with an underscore, the classic client move
@@ -252,8 +267,12 @@ func (s *Session) onJoin(ev *bus.Event, line Line) {
 	}
 	channel := p[0]
 	if ev.SenderMe {
+		// a (re)join resets channel state: whoever was tracked before a
+		// kick is stale by the time we are back; NAMES refills the list
 		s.channels[channel] = &channelState{joined: s.now()}
 		ev.TargetMe = true // technically it targets us... right?
+	} else if st, ok := s.channels[channel]; ok {
+		st.addMember(ev.Sender.Nick)
 	}
 	ev.Channel = channel
 	s.emit("IRC_JOIN", ev)
@@ -270,6 +289,8 @@ func (s *Session) onPart(ev *bus.Event, line Line) {
 	channel := p[0]
 	if ev.SenderMe {
 		delete(s.channels, channel)
+	} else if st, ok := s.channels[channel]; ok {
+		delete(st.members, strings.ToLower(ev.Sender.Nick))
 	}
 	ev.Channel = channel
 	s.emit("IRC_PART", ev)
@@ -290,6 +311,9 @@ func (s *Session) onKick(ev *bus.Event, line Line) {
 		reason = p[2]
 	}
 	ev.TargetMe = target == s.nick
+	if st, ok := s.channels[channel]; ok && !ev.TargetMe {
+		delete(st.members, strings.ToLower(target))
+	}
 	ev.Channel = channel
 	ev.Target = target
 	ev.Reason = reason
@@ -328,7 +352,32 @@ func (s *Session) onQuit(ev *bus.Event, line Line) {
 	default:
 		ev.Msg = msg
 	}
+	for _, st := range s.channels {
+		delete(st.members, strings.ToLower(ev.Sender.Nick))
+	}
 	s.emit("IRC_QUIT", ev)
+}
+
+// onNick renames a member everywhere. Silent: there is no IRC_NICK bus
+// event (the Perl parser never emitted one either), this is member
+// bookkeeping only. Our own rename (server-forced, or the 433 retry
+// echo) updates the nick the session answers to.
+func (s *Session) onNick(ev *bus.Event, line Line) {
+	p := SplitParams(line.Params)
+	if len(p) < 1 || p[0] == "" {
+		return
+	}
+	newNick := p[0]
+	if ev.SenderMe {
+		s.nick = newNick
+	}
+	old := strings.ToLower(ev.Sender.Nick)
+	for _, st := range s.channels {
+		if _, ok := st.members[old]; ok {
+			delete(st.members, old)
+			st.addMember(newNick)
+		}
+	}
 }
 
 func (s *Session) onTopic(ev *bus.Event, line Line) {
@@ -359,6 +408,74 @@ func (s *Session) onRplTopic(line Line) {
 	} else {
 		s.channels[channel] = &channelState{topic: topic}
 	}
+}
+
+func (st *channelState) addMember(nick string) {
+	if st.members == nil {
+		st.members = make(map[string]string)
+	}
+	st.members[strings.ToLower(nick)] = nick
+}
+
+// onNamReply (353) accumulates one NAMES line into the pending set:
+// ":srv 353 me = #chan :nick @nick +nick". The channel is the
+// second-to-last param (the visibility symbol is absent on RFC1459
+// servers), status prefixes are stripped.
+func (s *Session) onNamReply(line Line) {
+	p := SplitParams(line.Params)
+	if len(p) < 3 {
+		return
+	}
+	channel := p[len(p)-2]
+	st, ok := s.channels[channel]
+	if !ok {
+		return
+	}
+	if st.pending == nil {
+		st.pending = make(map[string]string)
+	}
+	for n := range strings.FieldsSeq(p[len(p)-1]) {
+		n = strings.TrimLeft(n, "~&@%+")
+		if n != "" {
+			st.pending[strings.ToLower(n)] = n
+		}
+	}
+}
+
+// onEndOfNames (366) swaps the accumulated NAMES burst in, so a
+// refresh replaces the member list instead of merging into it.
+func (s *Session) onEndOfNames(line Line) {
+	p := SplitParams(line.Params)
+	if len(p) < 2 {
+		return
+	}
+	if st, ok := s.channels[p[1]]; ok {
+		st.members = st.pending
+		st.pending = nil
+	}
+}
+
+// Members lists the tracked nicks in a channel, sorted. Empty until
+// the NAMES reply lands (or for channels we are not in): callers that
+// gate on membership should fail open on an empty list.
+func (s *Session) Members(channel string) []string {
+	st, ok := s.channels[channel]
+	if !ok {
+		return nil
+	}
+	out := slices.Collect(maps.Values(st.members))
+	slices.Sort(out)
+	return out
+}
+
+// NickIn reports whether nick is tracked in channel (case-insensitive).
+func (s *Session) NickIn(channel, nick string) bool {
+	st, ok := s.channels[channel]
+	if !ok {
+		return false
+	}
+	_, in := st.members[strings.ToLower(nick)]
+	return in
 }
 
 // Channels lists channels the bot has joined, sorted.

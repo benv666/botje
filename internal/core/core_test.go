@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -451,11 +452,13 @@ func TestCoreEmitsIRCSent(t *testing.T) {
 	}
 }
 
-// rawAndMembership exercises the SendRaw + InChannel module API.
+// rawAndMembership exercises the SendRaw + InChannel + Members module
+// API.
 type rawProbe struct {
 	ctx     *module.Context
 	inTest  bool
 	inOther bool
+	members []string
 }
 
 func (m *rawProbe) Name() string { return "rawprobe" }
@@ -465,6 +468,7 @@ func (m *rawProbe) Load(ctx *module.Context) error {
 		if ev.Msg == "!probe" {
 			m.inTest = ctx.InChannel("#testing")
 			m.inOther = ctx.InChannel("#nope")
+			m.members = ctx.Members("#testing")
 			ctx.SendRaw("GLINE *@evil.example 1h :spam")
 		}
 		return bus.None, nil
@@ -477,6 +481,8 @@ func TestCoreSendRawAndInChannel(t *testing.T) {
 	h := newHarness(t, p)
 	h.expect("JOIN #testing")
 	h.send(":Meretrix!b@h JOIN #testing")
+	h.send(":srv 353 Meretrix = #testing :BenV @Verty")
+	h.send(":srv 366 Meretrix #testing :End of /NAMES list.")
 	h.send(":BenV!benv@host PRIVMSG #testing :!probe")
 	got := h.expect("GLINE")
 	if got != "GLINE *@evil.example 1h :spam" {
@@ -487,6 +493,9 @@ func TestCoreSendRawAndInChannel(t *testing.T) {
 	}
 	if p.inOther {
 		t.Error("InChannel(#nope) = true, want false")
+	}
+	if want := []string{"BenV", "Verty"}; !slices.Equal(p.members, want) {
+		t.Errorf("Members(#testing) = %q, want %q", p.members, want)
 	}
 }
 

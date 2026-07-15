@@ -3,6 +3,7 @@ package irc
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -89,5 +90,18 @@ func TestLiveSmoke(t *testing.T) {
 	}
 	if sess.Motd() == "" {
 		t.Error("no MOTD received")
+	}
+	// NAMES tracking against the real ircd: we are always in our own
+	// member list (as Meretrix, or underscored after a 433 retry)
+	members := sess.Members("#testing")
+	t.Logf("members of #testing: %v", members)
+	ourselves := false
+	for _, m := range members {
+		if len(m) >= len("Meretrix") && strings.EqualFold(m[:len("Meretrix")], "Meretrix") {
+			ourselves = true
+		}
+	}
+	if !ourselves {
+		t.Errorf("Members(#testing) = %v, missing ourselves", members)
 	}
 }

@@ -329,6 +329,19 @@ func (m *Module) cbStart(d *cmd.Data) bool {
 	if len(nicks) == 0 {
 		nicks = []string{ev.Sender.Nick}
 	}
+	// every player must actually be in the channel: a phantom stalls the
+	// game for everyone until the missed-turn axe falls. Fail open on an
+	// empty member list (NAMES not landed yet, right after a restart).
+	if !ev.Query && m.ctx.Members != nil {
+		if members := m.ctx.Members(ev.Channel); len(members) > 0 {
+			for _, n := range nicks {
+				if !slices.ContainsFunc(members, func(mem string) bool { return strings.EqualFold(mem, n) }) {
+					m.ctx.Privmsg(ev.Channel, fmt.Sprintf(t.absentNick, n))
+					return true
+				}
+			}
+		}
+	}
 	p, ok := m.pickPuzzle(lang)
 	if !ok {
 		m.ctx.Privmsg(ev.Channel, t.noPuzzles)

@@ -46,6 +46,11 @@ type Context struct {
 	SendRaw func(line string)
 	// InChannel reports whether the bot is currently in a channel.
 	InChannel func(channel string) bool
+	// Members lists the tracked nicks in a channel (from NAMES plus
+	// join/part/quit/kick/nick bookkeeping), sorted. Empty until the
+	// NAMES reply lands: callers gating on membership should fail open
+	// on an empty list.
+	Members func(channel string) []string
 }
 
 // Module is one feature module. Name doubles as the storage namespace
