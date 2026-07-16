@@ -574,8 +574,21 @@ func TestRegenDry(t *testing.T) {
 	f := newFixture(t, storage.NewMemory())
 	f.msg("BenV", "#testing", "!regen")
 	got := f.take()
-	if len(got) != 1 || !strings.Contains(got[0], "droog") || !strings.Contains(got[0], "17:10") {
+	if len(got) != 1 || !strings.Contains(got[0], "droog") || !strings.Contains(got[0], "17:10") || !strings.Contains(got[0], "▁") {
 		t.Fatalf("dry regen = %q", got)
+	}
+}
+
+// !regen <plaats> reported no bars at all when the place was dry (BenV +
+// Bram, #bvs 2026-07-16: "!regen castricum" -> "Castricum: droog tot
+// zeker 12:10." with no sparkline, unlike home !regen). Bars belong on
+// every regen reply, dry or not.
+func TestRegenDryNamedPlace(t *testing.T) {
+	f := newFixture(t, storage.NewMemory())
+	f.msg("BenV", "#testing", "!regen castricum")
+	got := f.take()
+	if len(got) != 1 || !strings.Contains(got[0], "droog") || !strings.Contains(got[0], "▁") {
+		t.Fatalf("dry regen for named place = %q", got)
 	}
 }
 

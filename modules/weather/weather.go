@@ -803,10 +803,10 @@ func regenLine(label string, pts []rainPoint) string {
 		}
 	}
 	last := pts[len(pts)-1].Time
-	if firstWet == -1 {
-		return fmt.Sprintf("%s: droog tot zeker %s.", label, last)
-	}
 	spark := format.Sparkline(values, 1)[0]
+	if firstWet == -1 {
+		return fmt.Sprintf("%s: {C}%s{/} (tot %s), droog tot zeker %s.", label, spark, last, last)
+	}
 	when := "nu regen"
 	if firstWet > 0 {
 		when = "regen vanaf " + pts[firstWet].Time
