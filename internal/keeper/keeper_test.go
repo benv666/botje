@@ -469,8 +469,8 @@ func TestSilentConnectionTreatedAsDead(t *testing.T) {
 	start := time.Now()
 	select {
 	case <-irc.conns:
-		if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-			t.Fatalf("keeper took %v to give up, want ~ReadTimeout (300ms)", elapsed)
+		if elapsed := time.Since(start); elapsed > 400*time.Millisecond {
+			t.Fatalf("keeper took %v to give up, want ~ReadTimeout (300ms, bound 400ms)", elapsed)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("keeper never gave up on the silent connection")
