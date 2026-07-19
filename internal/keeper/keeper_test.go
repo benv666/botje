@@ -463,9 +463,15 @@ func TestSilentConnectionTreatedAsDead(t *testing.T) {
 		t.Fatal("keeper reconnected despite live traffic")
 	default:
 	}
-	// now silence: the keeper must declare it dead and redial
+	// now silence: the keeper must declare it dead and redial. The
+	// unanswered probe must not stretch the window: the kill still
+	// comes at ReadTimeout (300ms), not at probe + another full window.
+	start := time.Now()
 	select {
 	case <-irc.conns:
+		if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+			t.Fatalf("keeper took %v to give up, want ~ReadTimeout (300ms)", elapsed)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("keeper never gave up on the silent connection")
 	}
