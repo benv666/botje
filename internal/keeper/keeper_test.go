@@ -371,9 +371,79 @@ func TestSetIRCAfterShutdownClosesConn(t *testing.T) {
 	}
 }
 
-// A connection that goes silent is dead (NAT drop, hard hang): servers
-// ping every couple of minutes, so a long inbound silence means the
-// keeper must give up on the socket and reconnect.
+// A quiet-but-healthy connection must not be killed: inspircd only
+// pings clients that are themselves idle, so when the bot broadcasts
+// (rss/ticker) into sleeping channels the inbound side goes silent for
+// real while the connection is fine (the 06:10 reconnects, 2026-07-19).
+// The keeper probes with a PING at half the watchdog window; anything
+// the server sends back resets the clock.
+func TestQuietConnectionProbedAndKeptAlive(t *testing.T) {
+	irc := newFakeIRC(t)
+	startKeeperWith(t, irc.ln.Addr().String(), func(c *Config) {
+		c.ReadTimeout = 300 * time.Millisecond
+		c.sleep = instantSleep(make(chan time.Duration, 8))
+	})
+
+	ircConn := irc.accept(t)
+	// answer keeper probes like a live ircd; send nothing on our own
+	probes := make(chan string, 16)
+	go func() {
+		r := bufio.NewReader(ircConn)
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			select {
+			case probes <- strings.TrimSpace(line):
+			default:
+			}
+			fmt.Fprint(ircConn, ":irc.test PONG irc.test :keeper\r\n")
+		}
+	}()
+
+	// several full watchdog windows: the connection must survive
+	select {
+	case <-irc.conns:
+		t.Fatal("keeper reconnected despite answering probes")
+	case <-time.After(1200 * time.Millisecond):
+	}
+	select {
+	case p := <-probes:
+		if !strings.HasPrefix(p, "PING ") {
+			t.Fatalf("probe is not a PING: %q", p)
+		}
+	default:
+		t.Fatal("keeper never probed the quiet connection")
+	}
+}
+
+// While inbound traffic flows the keeper must not probe at all.
+func TestNoProbeWhileTrafficFlows(t *testing.T) {
+	irc := newFakeIRC(t)
+	startKeeperWith(t, irc.ln.Addr().String(), func(c *Config) {
+		c.ReadTimeout = time.Second // probe would fire at 500ms silence
+		c.sleep = instantSleep(make(chan time.Duration, 8))
+	})
+
+	ircConn := irc.accept(t)
+	go func() {
+		for range 8 {
+			time.Sleep(150 * time.Millisecond)
+			fmt.Fprint(ircConn, "PING :alive\r\n")
+		}
+	}()
+	ircConn.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 256)
+	n, err := ircConn.Read(buf)
+	if n > 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("keeper wrote %q (err=%v) to a busy connection", buf[:n], err)
+	}
+}
+
+// A connection that goes silent is dead (NAT drop, hard hang): the
+// probe goes unanswered, so at the full watchdog window the keeper
+// must give up on the socket and reconnect.
 func TestSilentConnectionTreatedAsDead(t *testing.T) {
 	irc := newFakeIRC(t)
 	sock := startKeeperWith(t, irc.ln.Addr().String(), func(c *Config) {

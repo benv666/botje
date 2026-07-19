@@ -35,9 +35,17 @@ const maxBuffer = 4 << 20 // 4 MiB
 const maxOutBuffer = 16 << 10 // 16 KiB
 
 // defaultReadTimeout declares an IRC connection dead when nothing at
-// all arrives for this long. Servers ping idle clients every couple of
-// minutes, so a silent socket this long is gone (NAT drop, hard hang).
+// all arrives for this long. The ircd only pings clients that are
+// themselves idle, so a bot broadcasting into sleeping channels sees a
+// legitimately silent inbound side; at half this window the keeper
+// probes with a PING, and only an unanswered probe means the socket is
+// gone (NAT drop, hard hang).
 const defaultReadTimeout = 5 * time.Minute
+
+// probeLine is written to IRC after ReadTimeout/2 of inbound silence.
+// Anything the server sends back (PONG, even an error reply) proves
+// the connection alive and resets the watchdog.
+const probeLine = "PING :keeper\r\n"
 
 // Config configures the keeper.
 type Config struct {
@@ -181,23 +189,45 @@ func (k *keeper) ircLoop(ctx context.Context) {
 }
 
 // pumpIRC reads from the IRC connection and forwards to the core (or
-// buffers). Returns on read error, including the silence watchdog: a
-// connection with no inbound bytes for ReadTimeout is dead (servers
-// ping idle clients, so something always arrives on a live one).
+// buffers). Returns on read error, including the silence watchdog: at
+// ReadTimeout/2 of inbound silence a PING probe goes out, and a
+// connection still silent at the full ReadTimeout is dead. The probe
+// keeps the watchdog honest: the ircd only pings clients that are
+// themselves idle, so steady bot broadcasts into quiet channels
+// suppress server pings and inbound goes silent on a live connection.
 func (k *keeper) pumpIRC(conn net.Conn) {
 	buf := make([]byte, 32*1024)
+	probed := false
 	for {
-		conn.SetReadDeadline(time.Now().Add(k.cfg.ReadTimeout))
+		wait := k.cfg.ReadTimeout / 2
+		if probed {
+			wait = k.cfg.ReadTimeout - wait
+		}
+		conn.SetReadDeadline(time.Now().Add(wait))
 		n, err := conn.Read(buf)
 		if n > 0 {
+			probed = false
 			k.toCore(buf[:n])
 		}
-		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				slog.Warn("keeper: no traffic from IRC, declaring the connection dead", "timeout", k.cfg.ReadTimeout)
-			}
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
 			return
 		}
+		if n > 0 {
+			continue // data landed right at the deadline; not silence
+		}
+		if !probed {
+			probed = true
+			if _, err := conn.Write([]byte(probeLine)); err != nil {
+				slog.Warn("keeper: probe write failed", "err", err)
+				return
+			}
+			continue
+		}
+		slog.Warn("keeper: no traffic from IRC, declaring the connection dead", "timeout", k.cfg.ReadTimeout)
+		return
 	}
 }
 
