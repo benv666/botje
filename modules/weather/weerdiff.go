@@ -101,13 +101,16 @@ func splitPlaces(arg, home string) (a, b string, ok bool) {
 func (m *Module) cbWeerdiff(d *cmd.Data) bool {
 	channel := d.Event.Channel
 	arg, wantHelp := strings.TrimSpace(d.Data), false
+	if m.handleHome(d.Event, arg) {
+		return true
+	}
 	switch strings.ToLower(arg) {
 	case "", "?", "help", "hulp":
 		wantHelp = true
 	}
 	a, b, ok := "", "", false
 	if !wantHelp {
-		a, b, ok = splitPlaces(arg, m.ctx.Conf.String("weather_home"))
+		a, b, ok = splitPlaces(arg, m.homeOf(d.Event))
 	}
 	if wantHelp || !ok {
 		m.ctx.Privmsg(channel, diffUsage)

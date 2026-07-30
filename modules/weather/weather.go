@@ -17,8 +17,10 @@
 //   - a daily report at conf weather_report_time to conf
 //     weather_report_channels (empty = off).
 //
-// The default place is conf weather_home. Geocoding (open-meteo, no
-// key) is cached in storage forever: villages rarely move.
+// Without a place argument the caller's own place is used ("!weer
+// home=alkmaar", see home.go), falling back to conf weather_home.
+// Geocoding (open-meteo, no key) is cached in storage forever: villages
+// rarely move.
 //
 // Warning source: KNMI's own public warnings RSS is dead (frozen on
 // storm Ciarán, October 2023) and their Open Data API needs a
@@ -119,6 +121,7 @@ type Module struct {
 
 	ctx          *module.Context
 	fetch        func(url string, opts fetch.Options, cb func(fetch.Result)) bool
+	homes        map[string]string // "server nick" (lowercased) -> own place
 	geoCache     map[string]geo
 	rainCache    map[string]rainEntry
 	lastFeed     *feed
@@ -159,6 +162,10 @@ func (m *Module) Load(ctx *module.Context) error {
 	m.seenWarnings = make(map[string]time.Time)
 	if _, err := ctx.Store.Get(m.Name(), "seen_warnings", &m.seenWarnings); err != nil {
 		return fmt.Errorf("weather: load seen warnings: %w", err)
+	}
+	m.homes = make(map[string]string)
+	if _, err := ctx.Store.Get(m.Name(), "homes", &m.homes); err != nil {
+		return fmt.Errorf("weather: load homes: %w", err)
 	}
 	ctx.Cmd.Register(m.Name(), "weer", m.cbWeer)
 	ctx.Cmd.Register(m.Name(), "regen", m.cbRegen)
@@ -285,21 +292,22 @@ func (m *Module) withFeed(cb func(f *feed, ok bool)) {
 	})
 }
 
-const usage = "Gebruik: !weer [plaats] voor het actuele weer, !regen [plaats] voor de komende twee uur neerslag, !weerdiff <plaats1> <plaats2> om te vergelijken. Bijv: !weer alkmaar. Zonder plaats: %s."
+const usage = "Gebruik: !weer [plaats] voor het actuele weer, !regen [plaats] voor de komende twee uur neerslag, !weerdiff <plaats1> <plaats2> om te vergelijken. Bijv: !weer alkmaar. Zonder plaats: %s (je eigen plaats zet je met !weer home=<plaats>)."
 
-func (m *Module) usage() string {
-	return fmt.Sprintf(usage, m.ctx.Conf.String("weather_home"))
+func (m *Module) usage(ev *bus.Event) string {
+	return fmt.Sprintf(usage, m.homeOf(ev))
 }
 
 // place resolves the command argument; help-ish arguments ("?", "help")
-// return wantHelp because users absolutely will type "!regen ?".
-func (m *Module) place(arg string) (place string, wantHelp bool) {
+// return wantHelp because users absolutely will type "!regen ?". No
+// argument means the caller's own place, conf weather_home otherwise.
+func (m *Module) place(ev *bus.Event, arg string) (place string, wantHelp bool) {
 	arg = strings.TrimSpace(arg)
 	switch strings.ToLower(arg) {
 	case "?", "help", "hulp":
 		return "", true
 	case "":
-		return m.ctx.Conf.String("weather_home"), false
+		return m.homeOf(ev), false
 	}
 	return arg, false
 }
@@ -307,20 +315,23 @@ func (m *Module) place(arg string) (place string, wantHelp bool) {
 func (m *Module) cbWeer(d *cmd.Data) bool {
 	channel := d.Event.Channel
 	arg := strings.TrimSpace(d.Data)
+	if m.handleHome(d.Event, arg) {
+		return true
+	}
 	// "!weer full [plaats]": add the rest-of-day forecast
 	full := false
 	if rest, ok := cutWord(arg, "full", "volledig", "compleet"); ok {
 		full, arg = true, rest
 	}
-	place, wantHelp := m.place(arg)
+	place, wantHelp := m.place(d.Event, arg)
 	if wantHelp {
-		m.ctx.Privmsg(channel, m.usage())
+		m.ctx.Privmsg(channel, m.usage(d.Event))
 		return true
 	}
 	if full {
 		m.resolve(place, func(g geo, ok bool) {
 			if !ok {
-				m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage()))
+				m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage(d.Event)))
 				return
 			}
 			m.openMeteoForecast(channel, g)
@@ -329,7 +340,7 @@ func (m *Module) cbWeer(d *cmd.Data) bool {
 	}
 	m.resolve(place, func(g geo, ok bool) {
 		if !ok {
-			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage()))
+			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage(d.Event)))
 			return
 		}
 		if g.Country != "NL" {
@@ -510,14 +521,17 @@ func wmoText(code int) string {
 
 func (m *Module) cbRegen(d *cmd.Data) bool {
 	channel := d.Event.Channel
-	place, wantHelp := m.place(d.Data)
+	if m.handleHome(d.Event, strings.TrimSpace(d.Data)) {
+		return true
+	}
+	place, wantHelp := m.place(d.Event, d.Data)
 	if wantHelp {
-		m.ctx.Privmsg(channel, m.usage())
+		m.ctx.Privmsg(channel, m.usage(d.Event))
 		return true
 	}
 	m.resolve(place, func(g geo, ok bool) {
 		if !ok {
-			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage()))
+			m.ctx.Privmsg(channel, fmt.Sprintf("Ken ik niet: %s. %s", place, m.usage(d.Event)))
 			return
 		}
 		if !benelux(g) {
